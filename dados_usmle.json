@@ -1,0 +1,42 @@
+{
+    "relatorio": {
+        "Cardiovascular": 1,
+        "Renal": 0,
+        "Endócrino": 0,
+        "Neurologia": 0,
+        "Pneumologia": 0
+    },
+    "knowledge_base": [
+        {
+            "system": "Cardiovascular",
+            "tags": "Ventricular septal rupture, Myocardial infarction complications, Left anterior descending artery, Oxygen step-up, Right heart catheterization, Mitral regurgitation",
+            "objective": "Ventricular septal rupture is a mechanical complication of myocardial infarction occurring 3 to 5 days post-MI (typically following LAD occlusion) that presents with sudden hemodynamic collapse, a harsh holosystolic murmur at the left sternal border with a thrill, and an oxygen saturation step-up from the right atrium to the right ventricle."
+        }
+    ],
+    "tag_stats": {
+        "Ventricular septal rupture": {
+            "correct": 0,
+            "total": 1
+        },
+        "Myocardial infarction complications": {
+            "correct": 0,
+            "total": 1
+        },
+        "Left anterior descending artery": {
+            "correct": 0,
+            "total": 1
+        },
+        "Oxygen step-up": {
+            "correct": 0,
+            "total": 1
+        },
+        "Right heart catheterization": {
+            "correct": 0,
+            "total": 1
+        },
+        "Mitral regurgitation": {
+            "correct": 0,
+            "total": 1
+        }
+    }
+}
