@@ -2,7 +2,6 @@ import json
 import streamlit as st
 from google import genai
 from config import *
-from analytics import get_weak_tags
 
 # ==============================================================================
 # CARREGAMENTO DA TAXONOMIA
@@ -49,7 +48,6 @@ def validar_questao(q, sistema):
     if faltando:
         return False, f"Faltam informações no JSON gerado: {faltando}"
 
-    # Anti-Alucinação: Pega todas as tags permitidas do sistema
     tax_sistema = TAXONOMIA_COMPLETA.get(sistema, {})
     allowed_tags = set()
     for disciplina, tags in tax_sistema.items():
@@ -60,7 +58,6 @@ def validar_questao(q, sistema):
     if not tags_geradas:
         return False, "A IA não gerou nenhuma Tag para a questão."
 
-    # Se a taxonomia daquele sistema existir, barra as tags inventadas
     if allowed_tags:
         invalid_tags = [t for t in tags_geradas if t not in allowed_tags]
         if invalid_tags:
@@ -71,10 +68,9 @@ def validar_questao(q, sistema):
 # ==============================================================================
 # AI ENGINE
 # ==============================================================================
-def gerar_prompt(sistema, dificuldade, weak_tags):
-    weak_text = ", ".join(weak_tags) if weak_tags else "None"
+def gerar_prompt(sistema, dificuldade, tags_alvo):
+    alvos_texto = ", ".join(tags_alvo) if tags_alvo else "General topics"
     
-    # Injeta a taxonomia EXATA daquele sistema para a IA não inventar
     tax_sistema = TAXONOMIA_COMPLETA.get(sistema, {})
     tax_json = json.dumps(tax_sistema, indent=2)
 
@@ -84,11 +80,13 @@ Generate ONE high-quality USMLE clinical vignette.
 
 SYSTEM: {sistema}
 DIFFICULTY: {dificuldade}
-FOCUS WEAK AREAS: {weak_text}
+
+TARGET TAGS (MANDATORY): {alvos_texto}
+You MUST construct the vignette to test the concepts listed in the TARGET TAGS above.
 
 STRICT TAXONOMY RULE:
 You MUST classify the question using AT LEAST 6 and UP TO 10 exact tags from the JSON below. 
-You MUST mix disciplines (e.g., include Pathology, Pharmacology, AND Physiology tags in the same question).
+You MUST mix disciplines (e.g., include Pathology, Pharmacology, AND Physiology tags).
 Do NOT invent tags. Do NOT use tags outside this list.
 
 ALLOWED TAXONOMY FOR {sistema}:
@@ -99,7 +97,6 @@ STRICT REQUIREMENTS:
 - Plausible distractors with explanations
 - No giveaway buzzwords
 - Single best answer
-- integrate physiology, pathology and pharmacology where applicable
 - Return ONLY valid JSON.
 
 {{
@@ -132,15 +129,23 @@ STRICT REQUIREMENTS:
 }}
 """
 
-def gerar_questao(sistema, dificuldade, api_key):
-    weak_tags = get_weak_tags()
+def gerar_questao(sistema, dificuldade, api_key, tags_alvo=None):
+    # Se o Scheduler não enviou tags_alvo, ele puxa das fraquezas tradicionais
+    if not tags_alvo:
+        from analytics import get_weak_tags
+        tax_sistema = TAXONOMIA_COMPLETA.get(sistema, {})
+        allowed_tags = set()
+        for d, t_list in tax_sistema.items():
+            if isinstance(t_list, list):
+                allowed_tags.update(t_list)
+        tags_alvo = get_weak_tags(limit=5, allowed_tags=allowed_tags)
 
     client = genai.Client(api_key=api_key)
-    prompt = gerar_prompt(sistema, dificuldade, weak_tags)
+    prompt = gerar_prompt(sistema, dificuldade, tags_alvo)
 
     try:
         response = client.models.generate_content(
-            model=MODEL_NAME,
+            model=MODEL_QBANK,
             contents=prompt,
             config={
                 "temperature": 0.4,
@@ -151,19 +156,16 @@ def gerar_questao(sistema, dificuldade, api_key):
         texto = limpar_json(response.text)
         questao = json.loads(texto)
 
-        # Passa pelo validador rígido
         is_valid, msg = validar_questao(questao, sistema)
         if not is_valid:
-            st.error(f"Erro de Validação: {msg}")
-            with st.expander("Ver JSON reprovado"):
-                st.json(questao)
+            print(f"Erro de Validação: {msg}")
             return None
 
         questao["correct"] = questao["correct"].strip().upper()[0]
         return questao
 
     except Exception as e:
-        st.error(f"Erro na comunicação com a API: {str(e)}")
+        print(f"Erro na API: {e}")
         return None
 
 # ==============================================================================
@@ -177,7 +179,6 @@ def gerar_flashcards_ia(questao, letra_marcada, cards_existentes, api_key):
     correct_exp = questao.get("explanations", {}).get(correct_opt, "")
     wrong_exp = questao.get("explanations", {}).get(letra_marcada, "")
     
-    # Formata os cards que o usuário já tem para a IA ler
     if cards_existentes:
         cards_texto = "\n".join([f"- Front: {c['front']}\n  Back: {c['back']}" for c in cards_existentes])
     else:
@@ -187,24 +188,30 @@ def gerar_flashcards_ia(questao, letra_marcada, cards_existentes, api_key):
 You are an expert USMLE tutor and Anki card creator.
 The student answered a USMLE question incorrectly.
 
-EDUCATIONAL OBJECTIVE (Core Concept): {edu_obj}
+EDUCATIONAL OBJECTIVE: {edu_obj}
 CORRECT ANSWER ({correct_opt}): {correct_exp}
 STUDENT'S WRONG ANSWER ({letra_marcada}): {wrong_exp}
 
-EXISTING FLASHCARDS IN THE USER'S DECK FOR THESE TOPICS:
+EXISTING FLASHCARDS IN DECK:
 {cards_texto}
 
 TASK:
-1. Identify the exact knowledge gap that caused the student to choose the wrong answer based on the EDUCATIONAL OBJECTIVE.
-2. CRITICAL REDUNDANCY CHECK: Look at the EXISTING FLASHCARDS above. If the knowledge gap is ALREADY perfectly covered by one of those cards, DO NOT create a duplicate. 
-3. Only create 1 to 2 ATOMIC "Fill-in-the-blank" (Cloze style) flashcards if the specific fact is missing or needs a new angle of reinforcement.
+1. Identify the exact knowledge gap based on the WRONG ANSWER.
+2. Assess if the student lacks foundational knowledge: if the wrong answer suggests they don't even know the basics of the core disease/concept, you must create a Foundational Card first.
+3. CRITICAL REDUNDANCY CHECK: Look at the EXISTING FLASHCARDS. If a concept is ALREADY covered, DO NOT create a duplicate. 
+4. Create 1 to 3 ATOMIC "Fill-in-the-blank" (Cloze style) flashcards:
+   - Card 1 (Foundational - Optional): Tests the most basic definition, presentation, or cause of the core disease/drug.
+   - Card 2 (Specific): Tests the exact detail/mechanism the student missed in the question.
 
 FORMAT RULES:
-- The 'front' MUST be a sentence with the key concept replaced by "[...]".
-- The 'back' MUST be the complete sentence, with the previously missing word(s) in **bold**.
-- If no new cards are needed because the existing ones are enough, return an empty array for cards.
+- 'front': sentence with the key concept replaced by "[...]".
+- 'back': MUST contain the complete sentence with the missing word(s) in **bold**, followed by a new paragraph starting with "**Context:**" explaining the disease/phenomenon in 1-2 concise sentences.
+- If existing cards are enough, return an empty array.
 
-Return ONLY valid JSON in this exact format:
+Example:
+Front: "In senile aortic stenosis, the valve leaflets undergo [...] calcification."
+Back: "In senile aortic stenosis, the valve leaflets undergo **dystrophic** calcification.\n\n**Context:** Dystrophic calcification occurs in damaged or necrotic tissues in the setting of normal serum calcium and phosphate levels."
+Return ONLY valid JSON:
 {{
     "cards": [
         {{
@@ -217,15 +224,10 @@ Return ONLY valid JSON in this exact format:
 """
     try:
         response = client.models.generate_content(
-            model=MODEL_NAME,
+            model=MODEL_FLASHCARD,
             contents=prompt,
-            config={
-                "temperature": 0.2, # Baixei um pouco a temperatura para ela ser mais lógica e analítica
-                "response_mime_type": "application/json"
-            }
+            config={"temperature": 0.2, "response_mime_type": "application/json"}
         )
-        texto = limpar_json(response.text)
-        dados = json.loads(texto)
-        return dados.get("cards", [])
+        return json.loads(limpar_json(response.text)).get("cards", [])
     except Exception as e:
         return []
