@@ -1,169 +1,37 @@
 import json
 import streamlit as st
-
 from google import genai
-
 from config import *
-from analytics import *
+from analytics import get_weak_tags
+
+# ==============================================================================
+# CARREGAMENTO DA TAXONOMIA
+# ==============================================================================
+def carregar_taxonomia():
+    try:
+        with open("taxonomy.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+TAXONOMIA_COMPLETA = carregar_taxonomia()
 
 def limpar_json(texto):
-
-
     texto = texto.strip().lstrip("\ufeff")
-
     if "```" in texto:
         linhas = texto.splitlines()
-        linhas = [
-            l for l in linhas
-            if not l.strip().startswith("```")
-        ]
+        linhas = [l for l in linhas if not l.strip().startswith("```")]
         texto = "\n".join(linhas)
 
     inicio = texto.find("{")
     fim = texto.rfind("}")
-
     if inicio != -1 and fim != -1:
         texto = texto[inicio:fim+1]
-
     return texto
 
-def validar_questao(q):
-
-    if not isinstance(q, dict):
-        return False
-
-    faltando = SCHEMA_OBRIGATORIO - q.keys()
-
-    if faltando:
-        return False
-
-    return True
-
 # ==============================================================================
-# AI ENGINE
+# VALIDAÇÃO
 # ==============================================================================
-
-def gerar_prompt(
-    sistema,
-    dificuldade,
-    weak_tags
-):
-
-    weak_text = ", ".join(weak_tags)
-
-    return f"""
-You are an elite NBME-style USMLE question writer.
-
-Generate ONE high-quality USMLE clinical vignette.
-
-SYSTEM:
-{sistema}
-
-DIFFICULTY:
-{dificuldade}
-
-FOCUS WEAK AREAS:
-{weak_text}
-
-STRICT REQUIREMENTS:
-
-- NBME style
-- realistic clinical reasoning
-- plausible distractors
-- no giveaway buzzwords
-- mechanism-based
-- board-level integration
-- single best answer
-- concise but difficult
-- integrate physiology, pathology and pharmacology
-
-Return ONLY valid JSON.
-
-{{
-    "vignette": "...",
-
-    "options": [
-        "A) ...",
-        "B) ...",
-        "C) ...",
-        "D) ..."
-    ],
-
-    "correct": "A",
-
-    "explanations": {{
-        "A": "...",
-        "B": "...",
-        "C": "...",
-        "D": "..."
-    }},
-
-    "educational_objective": "...",
-
-    "content_tags": [
-        "tag1",
-        "tag2"
-    ]
-    "taxonomy": {{
-  "system": "Renal",
-  "topic": "Acid/Base",
-  "subtopic": "Type 4 RTA"
-    }}
-}}
-"""
-
-def gerar_questao(
-    sistema,
-    dificuldade,
-    api_key
-):
-
-    weak_tags = get_weak_tags()
-
-    client = genai.Client(api_key=api_key)
-
-    prompt = gerar_prompt(
-        sistema,
-        dificuldade,
-        weak_tags
-    )
-
-    try:
-
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-            config={
-                "temperature": 0.4
-            }
-        )
-
-        texto = limpar_json(response.text)
-
-        questao = json.loads(texto)
-
-        if not validar_questao(questao):
-
-            st.error("JSON inválido.")
-
-            with st.expander("Resposta IA"):
-                st.code(texto)
-
-            return None
-
-        questao["correct"] = (
-            questao["correct"]
-            .strip()
-            .upper()[0]
-        )
-
-        return questao
-
-    except Exception as e:
-
-        st.error(str(e))
-
-        return None
 SCHEMA_OBRIGATORIO = {
     "vignette",
     "options",
@@ -172,3 +40,192 @@ SCHEMA_OBRIGATORIO = {
     "educational_objective",
     "content_tags"
 }
+
+def validar_questao(q, sistema):
+    if not isinstance(q, dict):
+        return False, "A IA não devolveu um formato de dicionário válido."
+
+    faltando = SCHEMA_OBRIGATORIO - q.keys()
+    if faltando:
+        return False, f"Faltam informações no JSON gerado: {faltando}"
+
+    # Anti-Alucinação: Pega todas as tags permitidas do sistema
+    tax_sistema = TAXONOMIA_COMPLETA.get(sistema, {})
+    allowed_tags = set()
+    for disciplina, tags in tax_sistema.items():
+        if isinstance(tags, list):
+            allowed_tags.update(tags)
+
+    tags_geradas = q.get("content_tags", [])
+    if not tags_geradas:
+        return False, "A IA não gerou nenhuma Tag para a questão."
+
+    # Se a taxonomia daquele sistema existir, barra as tags inventadas
+    if allowed_tags:
+        invalid_tags = [t for t in tags_geradas if t not in allowed_tags]
+        if invalid_tags:
+            return False, f"A IA alucinou! Tags inventadas que não estão no First Aid: {invalid_tags}"
+
+    return True, "OK"
+
+# ==============================================================================
+# AI ENGINE
+# ==============================================================================
+def gerar_prompt(sistema, dificuldade, weak_tags):
+    weak_text = ", ".join(weak_tags) if weak_tags else "None"
+    
+    # Injeta a taxonomia EXATA daquele sistema para a IA não inventar
+    tax_sistema = TAXONOMIA_COMPLETA.get(sistema, {})
+    tax_json = json.dumps(tax_sistema, indent=2)
+
+    return f"""
+You are an elite NBME-style USMLE question writer.
+Generate ONE high-quality USMLE clinical vignette.
+
+SYSTEM: {sistema}
+DIFFICULTY: {dificuldade}
+FOCUS WEAK AREAS: {weak_text}
+
+STRICT TAXONOMY RULE:
+You MUST classify the question using AT LEAST 6 and UP TO 10 exact tags from the JSON below. 
+You MUST mix disciplines (e.g., include Pathology, Pharmacology, AND Physiology tags in the same question).
+Do NOT invent tags. Do NOT use tags outside this list.
+
+ALLOWED TAXONOMY FOR {sistema}:
+{tax_json}
+
+STRICT REQUIREMENTS:
+- NBME style (realistic clinical reasoning, mechanism-based)
+- Plausible distractors with explanations
+- No giveaway buzzwords
+- Single best answer
+- integrate physiology, pathology and pharmacology where applicable
+- Return ONLY valid JSON.
+
+{{
+    "vignette": "A 45-year-old man presents with...",
+    "options": [
+        "A) ...",
+        "B) ...",
+        "C) ...",
+        "D) ...",
+        "E) ..."
+    ],
+    "correct": "A",
+    "explanations": {{
+        "A": "...",
+        "B": "...",
+        "C": "...",
+        "D": "...",
+        "E": "..."
+    }},
+    "educational_objective": "...",
+    "content_tags": [
+        "Pathology Tag from list",
+        "Pharmacology Tag from list",
+        "Physiology Tag from list",
+        "Anatomy Tag from list",
+        "Additional Tag 5 from list",
+        "Additional Tag 6 from list",
+        "Additional Tag 7 from list"
+    ]
+}}
+"""
+
+def gerar_questao(sistema, dificuldade, api_key):
+    weak_tags = get_weak_tags()
+
+    client = genai.Client(api_key=api_key)
+    prompt = gerar_prompt(sistema, dificuldade, weak_tags)
+
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+            config={
+                "temperature": 0.4,
+                "response_mime_type": "application/json"
+            }
+        )
+
+        texto = limpar_json(response.text)
+        questao = json.loads(texto)
+
+        # Passa pelo validador rígido
+        is_valid, msg = validar_questao(questao, sistema)
+        if not is_valid:
+            st.error(f"Erro de Validação: {msg}")
+            with st.expander("Ver JSON reprovado"):
+                st.json(questao)
+            return None
+
+        questao["correct"] = questao["correct"].strip().upper()[0]
+        return questao
+
+    except Exception as e:
+        st.error(f"Erro na comunicação com a API: {str(e)}")
+        return None
+
+# ==============================================================================
+# SMART FLASHCARDS
+# ==============================================================================
+def gerar_flashcards_ia(questao, letra_marcada, cards_existentes, api_key):
+    client = genai.Client(api_key=api_key)
+    
+    edu_obj = questao.get("educational_objective", "")
+    correct_opt = questao["correct"]
+    correct_exp = questao.get("explanations", {}).get(correct_opt, "")
+    wrong_exp = questao.get("explanations", {}).get(letra_marcada, "")
+    
+    # Formata os cards que o usuário já tem para a IA ler
+    if cards_existentes:
+        cards_texto = "\n".join([f"- Front: {c['front']}\n  Back: {c['back']}" for c in cards_existentes])
+    else:
+        cards_texto = "The student has NO existing flashcards for these topics."
+
+    prompt = f"""
+You are an expert USMLE tutor and Anki card creator.
+The student answered a USMLE question incorrectly.
+
+EDUCATIONAL OBJECTIVE (Core Concept): {edu_obj}
+CORRECT ANSWER ({correct_opt}): {correct_exp}
+STUDENT'S WRONG ANSWER ({letra_marcada}): {wrong_exp}
+
+EXISTING FLASHCARDS IN THE USER'S DECK FOR THESE TOPICS:
+{cards_texto}
+
+TASK:
+1. Identify the exact knowledge gap that caused the student to choose the wrong answer based on the EDUCATIONAL OBJECTIVE.
+2. CRITICAL REDUNDANCY CHECK: Look at the EXISTING FLASHCARDS above. If the knowledge gap is ALREADY perfectly covered by one of those cards, DO NOT create a duplicate. 
+3. Only create 1 to 2 ATOMIC "Fill-in-the-blank" (Cloze style) flashcards if the specific fact is missing or needs a new angle of reinforcement.
+
+FORMAT RULES:
+- The 'front' MUST be a sentence with the key concept replaced by "[...]".
+- The 'back' MUST be the complete sentence, with the previously missing word(s) in **bold**.
+- If no new cards are needed because the existing ones are enough, return an empty array for cards.
+
+Return ONLY valid JSON in this exact format:
+{{
+    "cards": [
+        {{
+            "front": "...",
+            "back": "...",
+            "tags": ["Tag1", "Tag2"]
+        }}
+    ]
+}}
+"""
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+            config={
+                "temperature": 0.2, # Baixei um pouco a temperatura para ela ser mais lógica e analítica
+                "response_mime_type": "application/json"
+            }
+        )
+        texto = limpar_json(response.text)
+        dados = json.loads(texto)
+        return dados.get("cards", [])
+    except Exception as e:
+        return []
