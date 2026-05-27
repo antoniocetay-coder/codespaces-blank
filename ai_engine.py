@@ -24,7 +24,7 @@ def limpar_json(texto):
 
     inicio = texto.find("{")
     fim = texto.rfind("}")
-    if inicio != -1 and fim != -1:
+    if inicio != -1 and f != -1:
         texto = texto[inicio:fim+1]
     return texto
 
@@ -37,7 +37,8 @@ SCHEMA_OBRIGATORIO = {
     "correct",
     "explanations",
     "educational_objective",
-    "content_tags"
+    "content_tags",
+    "distractor_tags"  # <-- ADICIONADO AO SCHEMA OBRIGATÓRIO
 }
 
 def validar_questao(q, sistema):
@@ -58,19 +59,25 @@ def validar_questao(q, sistema):
     if not tags_geradas:
         return False, "A IA não gerou nenhuma Tag para a questão."
 
+    # Valida as tags principais da questão contra a taxonomia
     if allowed_tags:
         invalid_tags = [t for t in tags_geradas if t not in allowed_tags]
         if invalid_tags:
-            return False, f"A IA alucinou! Tags inventadas que não estão no First Aid: {invalid_tags}"
+            return False, f"A IA alucinou nas tags da questão: {invalid_tags}"
+
+        # --- NOVA VALIDAÇÃO: Bloqueia se a IA alucinar nas tags dos distratores! ---
+        dist_tags = q.get("distractor_tags", {})
+        for letra, tag in dist_tags.items():
+            if tag not in allowed_tags:
+                return False, f"A IA alucinou na tag do distrator {letra}: '{tag}'"
 
     return True, "OK"
 
 # ==============================================================================
 # AI ENGINE
 # ==============================================================================
-def gerar_prompt(sistema, dificuldade, tags_alvo):
-    alvos_texto = ", ".join(tags_alvo) if tags_alvo else "General topics"
-    
+def gerar_prompt(sistema, difficulty, weak_tags):
+    weak_text = ", ".join(weak_tags) if weak_tags else "None"
     tax_sistema = TAXONOMIA_COMPLETA.get(sistema, {})
     tax_json = json.dumps(tax_sistema, indent=2)
 
@@ -79,18 +86,21 @@ You are an elite NBME-style USMLE question writer.
 Generate ONE high-quality USMLE clinical vignette.
 
 SYSTEM: {sistema}
-DIFFICULTY: {dificuldade}
-
-TARGET TAGS (MANDATORY): {alvos_texto}
-You MUST construct the vignette to test the concepts listed in the TARGET TAGS above.
+DIFFICULTY: {difficulty}
+FOCUS WEAK AREAS: {weak_text}
 
 STRICT TAXONOMY RULE:
-You MUST classify the question using AT LEAST 6 and UP TO 10 exact tags from the JSON below. 
-You MUST mix disciplines (e.g., include Pathology, Pharmacology, AND Physiology tags).
+You MUST classify the question using 4 to 10 exact tags from the JSON below.
 Do NOT invent tags. Do NOT use tags outside this list.
 
 ALLOWED TAXONOMY FOR {sistema}:
 {tax_json}
+
+STRICT DISTRACTOR TAGGING RULE:
+For every single option in "options" (A, B, C, D, E), you MUST associate it with its specific medical concept/tag from the ALLOWED TAXONOMY above.
+- The correct option must point to the correct concept tested.
+- Each distractor (incorrect option) must point to the specific decoy/distractor concept it represents.
+- Output this mapping in the "distractor_tags" object. All tags in "distractor_tags" must be exact matches from the ALLOWED TAXONOMY.
 
 STRICT REQUIREMENTS:
 - NBME style (realistic clinical reasoning, mechanism-based)
@@ -118,71 +128,65 @@ STRICT REQUIREMENTS:
     }},
     "educational_objective": "...",
     "content_tags": [
-        "Pathology Tag from list",
-        "Pharmacology Tag from list",
-        "Physiology Tag from list",
-        "Anatomy Tag from list",
-        "Additional Tag 5 from list",
-        "Additional Tag 6 from list",
-        "Additional Tag 7 from list"
-    ]
+        "Tag 1 from list",
+        "Tag 2 from list",
+        "Tag 3 from list",
+        "Tag 4 from list",
+        "... add up to 10 tags if relevant"
+    ],
+    "distractor_tags": {{
+        "A": "Exact Tag from list for Option A",
+        "B": "Exact Tag from list for Option B",
+        "C": "Exact Tag from list for Option C",
+        "D": "Exact Tag from list for Option D",
+        "E": "Exact Tag from list for Option E"
+    }}
 }}
 """
 
-def gerar_questao(sistema, dificuldade, api_key, tags_alvo=None):
-    # Se o Scheduler não enviou tags_alvo, ele puxa das fraquezas tradicionais
-    if not tags_alvo:
-        from analytics import get_weak_tags
-        tax_sistema = TAXONOMIA_COMPLETA.get(sistema, {})
-        allowed_tags = set()
-        for d, t_list in tax_sistema.items():
-            if isinstance(t_list, list):
-                allowed_tags.update(t_list)
-        tags_alvo = get_weak_tags(limit=5, allowed_tags=allowed_tags)
+def gerar_questao(sistema, difficulty, api_key):
+    from analytics import get_weak_tags
+    tax_sistema = TAXONOMIA_COMPLETA.get(sistema, {})
+    allowed_tags = set()
+    for d, t_list in tax_sistema.items():
+        if isinstance(t_list, list):
+            allowed_tags.update(t_list)
+    weak_tags = get_weak_tags(limit=5, allowed_tags=allowed_tags)
 
     client = genai.Client(api_key=api_key)
-    prompt = gerar_prompt(sistema, dificuldade, tags_alvo)
+    prompt = gerar_prompt(sistema, difficulty, weak_tags)
 
     try:
         response = client.models.generate_content(
-            model=MODEL_QBANK,
+            model=MODEL_NAME,
             contents=prompt,
             config={
                 "temperature": 0.4,
                 "response_mime_type": "application/json"
             }
         )
-
         texto = limpar_json(response.text)
         questao = json.loads(texto)
-
         is_valid, msg = validar_questao(questao, sistema)
         if not is_valid:
-            print(f"Erro de Validação: {msg}")
+            st.error(f"Validation error: {msg}")
             return None
-
         questao["correct"] = questao["correct"].strip().upper()[0]
         return questao
-
     except Exception as e:
-        print(f"Erro na API: {e}")
+        st.error(str(e))
         return None
 
-# ==============================================================================
-# SMART FLASHCARDS
-# ==============================================================================
 def gerar_flashcards_ia(questao, letra_marcada, cards_existentes, api_key):
     client = genai.Client(api_key=api_key)
-    
     edu_obj = questao.get("educational_objective", "")
     correct_opt = questao["correct"]
     correct_exp = questao.get("explanations", {}).get(correct_opt, "")
     wrong_exp = questao.get("explanations", {}).get(letra_marcada, "")
-    
     if cards_existentes:
         cards_texto = "\n".join([f"- Front: {c['front']}\n  Back: {c['back']}" for c in cards_existentes])
     else:
-        cards_texto = "The student has NO existing flashcards for these topics."
+        cards_texto = "No existing cards."
 
     prompt = f"""
 You are an expert USMLE tutor and Anki card creator.
@@ -197,11 +201,11 @@ EXISTING FLASHCARDS IN DECK:
 
 TASK:
 1. Identify the exact knowledge gap based on the WRONG ANSWER.
-2. Assess if the student lacks foundational knowledge: if the wrong answer suggests they don't even know the basics of the core disease/concept, you must create a Foundational Card first.
-3. CRITICAL REDUNDANCY CHECK: Look at the EXISTING FLASHCARDS. If a concept is ALREADY covered, DO NOT create a duplicate. 
+2. Assess if the student lacks foundational knowledge.
+3. CRITICAL REDUNDANCY CHECK: If a concept is ALREADY covered in the EXISTING FLASHCARDS, DO NOT create a duplicate.
 4. Create 1 to 3 ATOMIC "Fill-in-the-blank" (Cloze style) flashcards:
-   - Card 1 (Foundational - Optional): Tests the most basic definition, presentation, or cause of the core disease/drug.
-   - Card 2 (Specific): Tests the exact detail/mechanism the student missed in the question.
+   - Card 1 (Foundational - Optional): Basic definition or presentation of the disease/concept.
+   - Card 2 (Specific): Tests exact missed fact from objective.
 
 FORMAT RULES:
 - 'front': sentence with the key concept replaced by "[...]".
@@ -210,7 +214,8 @@ FORMAT RULES:
 
 Example:
 Front: "In senile aortic stenosis, the valve leaflets undergo [...] calcification."
-Back: "In senile aortic stenosis, the valve leaflets undergo **dystrophic** calcification.\n\n**Context:** Dystrophic calcification occurs in damaged or necrotic tissues in the setting of normal serum calcium and phosphate levels."
+Back: "In senile aortic stenosis, the valve leaflets undergo **dystrophic** calcification.\n\n**Context:** Dystrophic calcification occurs in damaged or necrotic tissues."
+
 Return ONLY valid JSON:
 {{
     "cards": [
@@ -224,9 +229,12 @@ Return ONLY valid JSON:
 """
     try:
         response = client.models.generate_content(
-            model=MODEL_FLASHCARD,
+            model=MODEL_NAME,
             contents=prompt,
-            config={"temperature": 0.2, "response_mime_type": "application/json"}
+            config={
+                "temperature": 0.2,
+                "response_mime_type": "application/json"
+            }
         )
         return json.loads(limpar_json(response.text)).get("cards", [])
     except Exception as e:

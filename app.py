@@ -234,18 +234,28 @@ with tab1:
                 escolha = st.radio("Escolha:", q["options"], index=None, disabled=st.session_state["resposta_submetida"])
 
                 if not st.session_state["resposta_submetida"]:
-                    if st.button("Submeter", disabled=(escolha is None)):
-                        letra = escolha[0].upper()
-                        correto = (letra == q["correct"])
+            if st.button("Submeter", disabled=(escolha is None)):
+                letra = escolha[0].upper()
+                correto = (letra == q["correct"])
 
-                        st.session_state["resposta_submetida"] = True
-                        st.session_state["acertou_ultima"] = correto
-                        st.session_state["letra_escolhida"] = letra
+                st.session_state["resposta_submetida"] = True
+                st.session_state["acertou_ultima"] = correto
+                st.session_state["letra_escolhida"] = letra
 
-                        tags_q = json.loads(q_db.get("tags", "[]")) if "tags" in q_db else q["content_tags"]
-                        salvar_resultado_pendente(q_db["id"], q_db["sistema"], correto, tags_q)
-                        st.rerun()
+                # Grava o resultado normal no banco de dados
+                salvar_resultado(sistema, dificuldade, correto, q, q["content_tags"])
 
+                # --- REGISTRA O PAR DE CONFUSÃO CASO TENHA ERRADO ---
+                if not correto:
+                    dist_tags = q.get("distractor_tags", {})
+                    tag_correta = dist_tags.get(q["correct"])
+                    tag_errada = dist_tags.get(letra)
+                    
+                    if tag_correta and tag_errada:
+                        registrar_confusao(tag_correta, tag_errada)
+
+                st.rerun()
+                
                 if st.session_state["resposta_submetida"]:
                     if st.session_state["acertou_ultima"]:
                         st.success("Correto!")
