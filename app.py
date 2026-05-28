@@ -16,6 +16,10 @@ import pandas as pd
 import datetime
 import time
 
+# IMPORTAÇÕES DO PLOTLY PARA OS GRÁFICOS (Resolvendo o erro do px)
+import plotly.express as px
+import plotly.graph_objects as go
+
 # ==============================================================================
 # DATABASE & STARTUP
 # ==============================================================================
@@ -46,8 +50,9 @@ DEFAULTS = {
     "tempo_inicio_questao": None,
     "tempo_gasto": None,
     "revelar_flashcard": False,
-    "flashcards_rascunho": [],  # <--- Adicionado explicitamente aqui
-    "flashcards_salvos": False
+    "flashcards_rascunho": [],
+    "flashcards_salvos": False,
+    "checagem_feita": False
 }
 
 for k, v in DEFAULTS.items():
@@ -57,7 +62,6 @@ for k, v in DEFAULTS.items():
 def sair_do_modo_estudo():
     for k in DEFAULTS.keys():
         del st.session_state[k]
-    # Limpa os rascunhos à força ao sair
     st.session_state["flashcards_rascunho"] = []
     st.session_state["flashcards_salvos"] = False
     st.session_state["checagem_feita"] = False
@@ -72,19 +76,9 @@ def proximo_item_fila():
     st.session_state["confianca_escolhida"] = None
     st.session_state["tempo_gasto"] = None
     
-    # EM VEZ DE DELETAR, NÓS ESVAZIAMOS AS LISTAS E VARIÁVEIS À FORÇA
     st.session_state["flashcards_rascunho"] = []
     st.session_state["flashcards_salvos"] = False
     st.session_state["checagem_feita"] = False
-    
-    st.rerun()
-    
-    if "flashcards_rascunho" in st.session_state:
-        del st.session_state["flashcards_rascunho"]
-    if "flashcards_salvos" in st.session_state:
-        del st.session_state["flashcards_salvos"]
-    if "checagem_feita" in st.session_state:
-        del st.session_state["checagem_feita"]
     st.rerun()
 
 def salvar_resultado_pendente(q_id, sistema, is_correct, tags, time_taken, confidence):
@@ -321,12 +315,11 @@ with tab1:
                     st.caption(" | ".join(q["content_tags"]))
 
                     # ==========================================
-                    # PAINEL DE FORJA DE FLASHCARDS (100% Manual)
+                    # PAINEL DE FORJA DE FLASHCARDS
                     # ==========================================
                     st.markdown("---")
                     st.markdown("### 🛠️ Forja de Flashcards")
                     
-                    # Linha 1: Botões de Geração Rápida
                     col_btn_erro, col_btn_mais = st.columns(2)
                     with col_btn_erro:
                         if st.button("💡 Analisar meu Erro/Chute", use_container_width=True):
@@ -339,8 +332,6 @@ with tab1:
                                     api_key
                                 )
                                 if cards_ia:
-                                    if "flashcards_rascunho" not in st.session_state:
-                                        st.session_state["flashcards_rascunho"] = []
                                     st.session_state["flashcards_rascunho"].extend(cards_ia)
                                     st.rerun()
 
@@ -350,13 +341,10 @@ with tab1:
                                 atuais = st.session_state.get("flashcards_rascunho", [])
                                 novos_cards = gerar_mais_flashcards(q, atuais, api_key)
                                 if novos_cards:
-                                    if "flashcards_rascunho" not in st.session_state:
-                                        st.session_state["flashcards_rascunho"] = []
                                     st.session_state["flashcards_rascunho"].extend(novos_cards)
                                     st.rerun()
 
-                    # Linha 2: Geração Sob Demanda
-                    st.write("") # Espaçamento
+                    st.write("") 
                     col_input, col_btn_especifico = st.columns([3, 1])
                     with col_input:
                         pedido_customizado = st.text_input(
@@ -370,44 +358,30 @@ with tab1:
                                 with st.spinner("Forjando card sob demanda..."):
                                     novos_cards = gerar_flashcard_sob_demanda(q, pedido_customizado, api_key)
                                     if novos_cards:
-                                        if "flashcards_rascunho" not in st.session_state:
-                                            st.session_state["flashcards_rascunho"] = []
                                         st.session_state["flashcards_rascunho"].extend(novos_cards)
                                         st.rerun()
                             else:
                                 st.warning("Digite algo ao lado.")
 
                     # ==========================================
-                    # EXIBIÇÃO E APROVAÇÃO DOS RASCUNHOS
+                    # EXIBIÇÃO DOS RASCUNHOS
                     # ==========================================
                     if st.session_state.get("flashcards_salvos", False):
                         st.success("✅ Cards salvos no Baralho!")
                     else:
                         rascunhos = st.session_state.get("flashcards_rascunho", [])
-                        
-                        # NOVA REGRA: Só desenha se a lista REALMENTE tiver algo novo
                         if len(rascunhos) > 0:
                             st.markdown("---")
-                            
-                            # Amarramos a chave do Form ao ID exato desta questão
                             chave_unica = f"form_{q_db['id']}" 
-                            
                             with st.form(key=chave_unica):
                                 editados = []
                                 for i, card in enumerate(rascunhos):
                                     st.write(f"**Card {i+1}**")
-                                    # As chaves text_area agora também são exclusivas dessa questão!
                                     key_front = f"f_{i}_{q_db['id']}"
                                     key_back = f"b_{i}_{q_db['id']}"
-                                    
                                     novo_front = st.text_area("Q (Front)", value=card.get("front", ""), key=key_front)
                                     novo_back = st.text_area("A (Back)", value=card.get("back", ""), key=key_back)
-                                    
-                                    editados.append({
-                                        "front": novo_front, 
-                                        "back": novo_back, 
-                                        "tags": card.get("tags", q["content_tags"])
-                                    })
+                                    editados.append({"front": novo_front, "back": novo_back, "tags": card.get("tags", q["content_tags"])})
                                 
                                 if st.form_submit_button("Aprovar e Salvar Todos"):
                                     for c in editados:
@@ -420,7 +394,7 @@ with tab1:
                         proximo_item_fila()
 
 # ==============================================================================
-# TAB 2, 3 E 4
+# TAB 2: TARGETED PRACTICE (Brute Force Mode)
 # ==============================================================================
 with tab2:
     st.header("🎯 Prática Focada (Brute Force)")
@@ -450,31 +424,124 @@ with tab2:
                             st.write(opt)
                         st.success(f"Correta: {q_brute['correct']}")
 
+# ==============================================================================
+# TAB 3: ANALYTICS (Cockpit de Performance)
+# ==============================================================================
 with tab3:
-    stats = get_tag_stats()
-    st.subheader("Weak Areas & Mastery")
+    st.header("📊 Cockpit de Performance USMLE")
+    
+    sys_stats = get_system_stats()
+    meta_stats = get_metacognition_stats()
+    time_stats = get_time_stats()
+    fsrs_data = get_fsrs_forecast()
+    confusions = get_global_confusions()
 
-    if not stats:
-        st.info("Sem dados. Resolva algumas questões primeiro!")
+    if not sys_stats:
+        st.info("Ainda não há dados suficientes. Resolva algumas questões no QBank!")
     else:
-        rows = []
-        for tag, s in stats.items():
-            if s["total"] > 0:
-                pct = (s["correct"] / s["total"]) * 100
-                nivel_dominio = classify_tag(s["correct"], s["total"]).value
-                rows.append({"Tag": tag, "Accuracy (%)": round(pct, 1), "Attempts": s["total"], "Mastery": nivel_dominio.upper()})
+        st.subheader("🕸️ Radar de Domínio por Sistema")
+        
+        df_sys = pd.DataFrame(sys_stats)
+        df_sys["accuracy"] = (df_sys["acertos"] / df_sys["total"]) * 100
+        
+        fig_radar = px.line_polar(
+            df_sys, r='accuracy', theta='sistema', line_close=True,
+            range_r=[0, 100], markers=True, 
+            color_discrete_sequence=['#00CC96']
+        )
+        fig_radar.update_traces(fill='toself')
+        st.plotly_chart(fig_radar, use_container_width=True)
 
-        if rows:
-            df = pd.DataFrame(rows).sort_values("Accuracy (%)")
-            st.dataframe(df, use_container_width=True)
-            st.bar_chart(df.set_index("Tag")["Accuracy (%)"])
+        st.markdown("---")
 
-            criticos = df[df["Accuracy (%)"] < 50]
-            if not criticos.empty:
-                st.error("Critical weak concepts detected.")
-                for _, row in criticos.iterrows():
-                    st.write(f"- {row['Tag']} ({row['Accuracy (%)']}%)")
+        col_meta, col_time = st.columns(2)
 
+        with col_meta:
+            st.subheader("🧠 Metacognição (Confiança vs Acerto)")
+            if meta_stats:
+                df_meta = pd.DataFrame(meta_stats)
+                df_meta["Resultado"] = df_meta["answered_correctly"].apply(lambda x: "Acertou" if x == 1 else "Errou")
+                
+                fig_meta = px.bar(
+                    df_meta, x="confidence_level", y="qtd", color="Resultado",
+                    barmode="group",
+                    color_discrete_map={"Acertou": "#28a745", "Errou": "#dc3545"},
+                    labels={"confidence_level": "Nível de Confiança", "qtd": "Qtd Questões"}
+                )
+                st.plotly_chart(fig_meta, use_container_width=True)
+            else:
+                st.caption("Sem dados de confiança registrados ainda.")
+
+        with col_time:
+            st.subheader("⏱️ Arrasto Cognitivo (Tempo Médio)")
+            if time_stats:
+                df_time = pd.DataFrame(time_stats)
+                df_time["Resultado"] = df_time["answered_correctly"].apply(lambda x: "Acertou" if x == 1 else "Errou")
+                
+                fig_time = px.bar(
+                    df_time, x="avg_time", y="sistema", color="Resultado",
+                    orientation='h', barmode='group',
+                    color_discrete_map={"Acertou": "#28a745", "Errou": "#dc3545"},
+                    labels={"avg_time": "Tempo Médio (s)", "sistema": "Sistema"}
+                )
+                fig_time.add_vline(x=90, line_width=2, line_dash="dash", line_color="red", annotation_text="USMLE Limit (90s)")
+                st.plotly_chart(fig_time, use_container_width=True)
+            else:
+                st.caption("Sem dados de tempo registrados ainda.")
+
+        st.markdown("---")
+        
+        col_fsrs, col_conf = st.columns(2)
+
+        with col_fsrs:
+            st.subheader("📅 Forecast de Revisões (FSRS)")
+            if fsrs_data:
+                df_fsrs = pd.DataFrame(fsrs_data)
+                df_fsrs["due"] = pd.to_datetime(df_fsrs["due"])
+                df_fsrs = df_fsrs[df_fsrs["due"].dt.date >= now_utc().date()]
+                
+                if not df_fsrs.empty:
+                    df_fsrs["due_str"] = df_fsrs["due"].dt.strftime('%d/%m')
+                    fig_fsrs = px.bar(
+                        df_fsrs, x="due_str", y="qtd",
+                        labels={"due_str": "Data", "qtd": "Flashcards Agendados"},
+                        color_discrete_sequence=['#636EFA']
+                    )
+                    st.plotly_chart(fig_fsrs, use_container_width=True)
+                else:
+                    st.caption("Nenhum card agendado para o futuro.")
+            else:
+                st.caption("Sem dados do FSRS.")
+
+        with col_conf:
+            st.subheader("🪤 Top Armadilhas (Red Herrings)")
+            if confusions:
+                df_conf = pd.DataFrame(confusions)
+                st.dataframe(
+                    df_conf.rename(columns={"tag_correct": "O que era (Verdadeiro)", "tag_confused": "O que você achou (Falso)", "count": "Vezes que caiu"}),
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.success("Você ainda não caiu em nenhum distrator de forma repetida!")
+                
+        st.markdown("---")
+        with st.expander("Ver Domínio Completo por Micro-Tags"):
+            stats = get_tag_stats()
+            rows = []
+            for tag, s in stats.items():
+                if s["total"] > 0:
+                    pct = (s["correct"] / s["total"]) * 100
+                    nivel_dominio = classify_tag(s["correct"], s["total"]).value
+                    rows.append({"Tag": tag, "Accuracy (%)": round(pct, 1), "Attempts": s["total"], "Mastery": nivel_dominio.upper()})
+
+            if rows:
+                df_tags = pd.DataFrame(rows).sort_values("Accuracy (%)")
+                st.dataframe(df_tags, use_container_width=True, hide_index=True)
+
+# ==============================================================================
+# TAB 4: HISTORY
+# ==============================================================================
 with tab4:
     st.header("Question History")
     questions = get_questions()

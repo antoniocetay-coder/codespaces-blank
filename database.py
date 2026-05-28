@@ -238,3 +238,48 @@ def get_system_stats():
         GROUP BY sistema
     """).fetchall()
     return [dict(r) for r in rows]
+def get_metacognition_stats():
+    """Retorna dados cruzando confiança vs acerto."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT confidence_level, answered_correctly, COUNT(*) as qtd
+        FROM questions
+        WHERE confidence_level IS NOT NULL
+        GROUP BY confidence_level, answered_correctly
+    """).fetchall()
+    return [dict(r) for r in rows]
+
+def get_time_stats():
+    """Retorna o tempo médio gasto por sistema e por acerto/erro."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT sistema, answered_correctly, AVG(time_taken_seconds) as avg_time
+        FROM questions
+        WHERE time_taken_seconds IS NOT NULL
+        GROUP BY sistema, answered_correctly
+    """).fetchall()
+    return [dict(r) for r in rows]
+
+def get_fsrs_forecast():
+    """Previsão de revisões de Flashcards para os próximos dias."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT due, COUNT(*) as qtd
+        FROM srs_state
+        WHERE object_type = 'flashcard' AND due IS NOT NULL
+        GROUP BY due
+        ORDER BY due ASC
+        LIMIT 14
+    """).fetchall()
+    return [dict(r) for r in rows]
+
+def get_global_confusions(limit=10):
+    """Retorna o Top 10 das maiores armadilhas que você cai."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT tag_correct, tag_confused, count
+        FROM confusion_pairs
+        ORDER BY count DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    return [dict(r) for r in rows]
