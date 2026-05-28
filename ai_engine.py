@@ -24,7 +24,7 @@ def limpar_json(texto):
 
     inicio = texto.find("{")
     fim = texto.rfind("}")
-    if inicio != -1 and f != -1:
+    if inicio != -1 and fim != -1:
         texto = texto[inicio:fim+1]
     return texto
 
@@ -38,7 +38,7 @@ SCHEMA_OBRIGATORIO = {
     "explanations",
     "educational_objective",
     "content_tags",
-    "distractor_tags"  # <-- ADICIONADO AO SCHEMA OBRIGATÓRIO
+    "distractor_tags"
 }
 
 def validar_questao(q, sistema):
@@ -59,13 +59,11 @@ def validar_questao(q, sistema):
     if not tags_geradas:
         return False, "A IA não gerou nenhuma Tag para a questão."
 
-    # Valida as tags principais da questão contra a taxonomia
     if allowed_tags:
         invalid_tags = [t for t in tags_geradas if t not in allowed_tags]
         if invalid_tags:
             return False, f"A IA alucinou nas tags da questão: {invalid_tags}"
 
-        # --- NOVA VALIDAÇÃO: Bloqueia se a IA alucinar nas tags dos distratores! ---
         dist_tags = q.get("distractor_tags", {})
         for letra, tag in dist_tags.items():
             if tag not in allowed_tags:
@@ -76,8 +74,29 @@ def validar_questao(q, sistema):
 # ==============================================================================
 # AI ENGINE
 # ==============================================================================
-def gerar_prompt(sistema, difficulty, weak_tags):
+def gerar_prompt(sistema, difficulty, weak_tags, tags_alvo=None):
     weak_text = ", ".join(weak_tags) if weak_tags else "None"
+    
+    focus_instruction = f"FOCUS WEAK AREAS: {weak_text}"
+    confounder_instruction = ""
+    
+    if tags_alvo:
+        focus_instruction += f"\nCRITICAL: The question MUST strictly test one of these tags: {', '.join(tags_alvo)}"
+        
+        # BUSCA OS CONFUNDIDORES NO BANCO
+        from database import get_top_confounders
+        confounders = []
+        for tag in tags_alvo:
+            confounders.extend(get_top_confounders(tag))
+        
+        if confounders:
+            confounders = list(set(confounders))
+            confounder_instruction = f"""
+STUDENT'S KNOWN CONFUSIONS:
+The student frequently confuses the correct answer with these concepts: {', '.join(confounders)}
+YOU MUST include at least one of these concepts as a highly plausible DISTRACTOR (incorrect option) and explain why it is wrong in the explanations.
+"""
+            
     tax_sistema = TAXONOMIA_COMPLETA.get(sistema, {})
     tax_json = json.dumps(tax_sistema, indent=2)
 
@@ -87,7 +106,8 @@ Generate ONE high-quality USMLE clinical vignette.
 
 SYSTEM: {sistema}
 DIFFICULTY: {difficulty}
-FOCUS WEAK AREAS: {weak_text}
+{focus_instruction}
+{confounder_instruction}
 
 STRICT TAXONOMY RULE:
 You MUST classify the question using 4 to 10 exact tags from the JSON below.
@@ -129,10 +149,7 @@ STRICT REQUIREMENTS:
     "educational_objective": "...",
     "content_tags": [
         "Tag 1 from list",
-        "Tag 2 from list",
-        "Tag 3 from list",
-        "Tag 4 from list",
-        "... add up to 10 tags if relevant"
+        "Tag 2 from list"
     ],
     "distractor_tags": {{
         "A": "Exact Tag from list for Option A",
@@ -144,7 +161,7 @@ STRICT REQUIREMENTS:
 }}
 """
 
-def gerar_questao(sistema, difficulty, api_key):
+def gerar_questao(sistema, difficulty, api_key, tags_alvo=None):
     from analytics import get_weak_tags
     tax_sistema = TAXONOMIA_COMPLETA.get(sistema, {})
     allowed_tags = set()
@@ -154,11 +171,11 @@ def gerar_questao(sistema, difficulty, api_key):
     weak_tags = get_weak_tags(limit=5, allowed_tags=allowed_tags)
 
     client = genai.Client(api_key=api_key)
-    prompt = gerar_prompt(sistema, difficulty, weak_tags)
+    prompt = gerar_prompt(sistema, difficulty, weak_tags, tags_alvo=tags_alvo)
 
     try:
         response = client.models.generate_content(
-            model=MODEL_NAME,
+            model=MODEL_QBANK,
             contents=prompt,
             config={
                 "temperature": 0.4,
@@ -169,59 +186,51 @@ def gerar_questao(sistema, difficulty, api_key):
         questao = json.loads(texto)
         is_valid, msg = validar_questao(questao, sistema)
         if not is_valid:
-            st.error(f"Validation error: {msg}")
+            print(f"Validation error: {msg}")
             return None
         questao["correct"] = questao["correct"].strip().upper()[0]
         return questao
     except Exception as e:
-        st.error(str(e))
+        print(f"Erro ao gerar questão: {str(e)}")
         return None
 
-def gerar_flashcards_ia(questao, letra_marcada, cards_existentes, api_key):
+def gerar_flashcards_ia(questao, letra_marcada, api_key):
     client = genai.Client(api_key=api_key)
     edu_obj = questao.get("educational_objective", "")
-    correct_opt = questao["correct"]
-    correct_exp = questao.get("explanations", {}).get(correct_opt, "")
-    wrong_exp = questao.get("explanations", {}).get(letra_marcada, "")
-    if cards_existentes:
-        cards_texto = "\n".join([f"- Front: {c['front']}\n  Back: {c['back']}" for c in cards_existentes])
-    else:
-        cards_texto = "No existing cards."
+    correct_opt = questao.get("correct", "")
+    
+    explanations = questao.get("explanations", {})
+    correct_exp = explanations.get(correct_opt, "No explanation provided.")
+    wrong_exp = explanations.get(letra_marcada, "No explanation provided.")
 
     prompt = f"""
-You are an expert USMLE tutor and Anki card creator.
+You are an elite USMLE tutor and a strict follower of Piotr Wozniak's "20 Rules of Formulating Knowledge".
 The student answered a USMLE question incorrectly.
 
 EDUCATIONAL OBJECTIVE: {edu_obj}
 CORRECT ANSWER ({correct_opt}): {correct_exp}
 STUDENT'S WRONG ANSWER ({letra_marcada}): {wrong_exp}
 
-EXISTING FLASHCARDS IN DECK:
-{cards_texto}
-
 TASK:
-1. Identify the exact knowledge gap based on the WRONG ANSWER.
-2. Assess if the student lacks foundational knowledge.
-3. CRITICAL REDUNDANCY CHECK: If a concept is ALREADY covered in the EXISTING FLASHCARDS, DO NOT create a duplicate.
-4. Create 1 to 3 ATOMIC "Fill-in-the-blank" (Cloze style) flashcards:
-   - Card 1 (Foundational - Optional): Basic definition or presentation of the disease/concept.
-   - Card 2 (Specific): Tests exact missed fact from objective.
+Analyze the student's knowledge gap based on their WRONG ANSWER. Generate 1 to 3 ATOMIC, highly-effective Q&A (Question & Answer) flashcards to fix this exact gap.
 
-FORMAT RULES:
-- 'front': sentence with the key concept replaced by "[...]".
-- 'back': MUST contain the complete sentence with the missing word(s) in **bold**, followed by a new paragraph starting with "**Context:**" explaining the disease/phenomenon in 1-2 concise sentences.
-- If existing cards are enough, return an empty array.
+STRICT SUPERMEMO RULES:
+1. MINIMUM INFORMATION PRINCIPLE: Test exactly ONE specific concept per card. 
+2. NO CLOZE DELETIONS: Use direct questions. Do NOT use fill-in-the-blank or "[...]".
+3. NO LISTS: Never ask "What are the symptoms?". Instead, ask a mechanistic or distinguishing question.
+4. FOCUS ON MECHANISM & CLINICAL REASONING: Ask WHY something happens (Pathophysiology, Mechanism of Action) or how to clinically distinguish it.
+5. SHORT ANSWERS: The answer must be 1 to 5 words max. 
 
-Example:
-Front: "In senile aortic stenosis, the valve leaflets undergo [...] calcification."
-Back: "In senile aortic stenosis, the valve leaflets undergo **dystrophic** calcification.\n\n**Context:** Dystrophic calcification occurs in damaged or necrotic tissues."
+FORMAT:
+- 'front': A clear, unambiguous direct question.
+- 'back': The short, atomic answer in **bold**, followed by a new paragraph starting with "**Context:**" explaining briefly WHY this is the answer.
 
-Return ONLY valid JSON:
+Return ONLY valid JSON in this exact format:
 {{
     "cards": [
         {{
-            "front": "...",
-            "back": "...",
+            "front": "Question here?",
+            "back": "**Short Answer**\n\n**Context:** Brief explanation here.",
             "tags": ["Tag1", "Tag2"]
         }}
     ]
@@ -229,13 +238,18 @@ Return ONLY valid JSON:
 """
     try:
         response = client.models.generate_content(
-            model=MODEL_NAME,
+            model=MODEL_FLASHCARD,
             contents=prompt,
             config={
                 "temperature": 0.2,
                 "response_mime_type": "application/json"
             }
         )
-        return json.loads(limpar_json(response.text)).get("cards", [])
+        
+        texto_limpo = limpar_json(response.text)
+        dados = json.loads(texto_limpo)
+        return dados.get("cards", [])
+        
     except Exception as e:
+        st.error(f"⚠️ Erro na comunicação com o Gemini para Flashcards: {str(e)}")
         return []

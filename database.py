@@ -2,7 +2,7 @@ import sqlite3
 import json
 import uuid
 from enum import Enum
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from config import *
 
 class ItemType(Enum):
@@ -51,7 +51,6 @@ def init_db():
         )
     """)
 
-    # --- NOVA TABELA: Banco de Confusões (Confusion Matrix) ---
     conn.execute("""
         CREATE TABLE IF NOT EXISTS confusion_pairs (
             tag_correct TEXT NOT NULL,
@@ -66,25 +65,56 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_srs_state_due ON srs_state(due)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_tag ON item_tags(tag)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_obj ON item_tags(object_id, object_type)")
-    
-    # Índice para a tabela de confusões
     conn.execute("CREATE INDEX IF NOT EXISTS idx_confusion_pairs ON confusion_pairs(tag_correct)")
+
+    # Atualização dinâmica do esquema (Metacognição e Tempo)
+    try:
+        conn.execute("ALTER TABLE questions ADD COLUMN time_taken_seconds INTEGER")
+        conn.execute("ALTER TABLE questions ADD COLUMN confidence_level TEXT")
+    except sqlite3.OperationalError:
+        pass # As colunas já existem
 
     for s in SISTEMAS_DISPONIVEIS:
         conn.execute("INSERT OR IGNORE INTO erros_por_sistema (sistema, total) VALUES (?, 0)", (s,))
 
     conn.commit()
 
-def salvar_questao(sistema, dificuldade, questao, acertou, tags):
+
+def salvar_questao(sistema, dificuldade, questao, acertou, tags, status="answered"):
     conn = get_conn()
     q_id = str(uuid.uuid4())
-    conn.execute("INSERT INTO questions VALUES (?, ?, ?, ?, ?, ?, ?)", (
-        q_id, sistema, dificuldade, json.dumps(questao, ensure_ascii=False),
-        questao["correct"], int(acertou), datetime.now(timezone.utc).isoformat()
+    
+    # Se status for "pending", inserimos NULL no answered_correctly
+    ans_val = None if status == "pending" else int(acertou)
+    
+    # Adicionada a especificação das colunas (id, sistema, dificuldade, question_json, correct_answer, answered_correctly, created_at)
+    conn.execute("""
+        INSERT INTO questions (id, sistema, dificuldade, question_json, correct_answer, answered_correctly, created_at) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        q_id, 
+        sistema, 
+        dificuldade, 
+        json.dumps(questao, ensure_ascii=False),
+        questao["correct"], 
+        ans_val, 
+        datetime.now(timezone.utc).isoformat()
     ))
+    
     for tag in tags:
         conn.execute("INSERT INTO item_tags (object_id, object_type, tag) VALUES (?, ?, ?)", (q_id, ItemType.QUESTION.value, tag))
     conn.commit()
+
+
+def marcar_questao_respondida(q_id, acertou, time_taken=None, confidence=None):
+    conn = get_conn()
+    conn.execute("""
+        UPDATE questions 
+        SET answered_correctly = ?, time_taken_seconds = ?, confidence_level = ?
+        WHERE id = ?
+    """, (int(acertou), time_taken, confidence, q_id))
+    conn.commit()
+
 
 def get_questions():
     conn = get_conn()
@@ -92,10 +122,54 @@ def get_questions():
         SELECT q.*, GROUP_CONCAT(t.tag, '|') as tag_list
         FROM questions q
         LEFT JOIN item_tags t ON q.id = t.object_id AND t.object_type = 'question'
+        WHERE q.answered_correctly IS NOT NULL
         GROUP BY q.id
         ORDER BY q.created_at DESC
     """).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_pending_questions():
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT q.*, GROUP_CONCAT(t.tag, '|') as tag_list
+        FROM questions q
+        LEFT JOIN item_tags t ON q.id = t.object_id AND t.object_type = 'question'
+        WHERE q.answered_correctly IS NULL
+        GROUP BY q.id
+        ORDER BY q.created_at ASC
+    """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def salvar_flashcard_db(front, back, sistema, tags):
+    conn = get_conn()
+    f_id = str(uuid.uuid4())
+    conn.execute("INSERT INTO flashcards (id, front, back, sistema) VALUES (?, ?, ?, ?)", (f_id, front, back, sistema))
+    
+    for tag in tags:
+        conn.execute("INSERT INTO item_tags (object_id, object_type, tag) VALUES (?, ?, ?)", (f_id, ItemType.FLASHCARD.value, tag))
+    conn.commit()
+
+
+def get_cards_hoje():
+    conn = get_conn()
+    hoje = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    rows = conn.execute("""
+        SELECT f.*, 
+               COALESCE(s.stability, 0) as stability, 
+               COALESCE(s.difficulty, 0) as difficulty, 
+               s.due, 
+               COALESCE(s.repetitions, 0) as repetitions, 
+               COALESCE(s.lapses, 0) as lapses, 
+               s.last_review
+        FROM flashcards f
+        LEFT JOIN srs_state s ON f.id = s.object_id AND s.object_type = 'flashcard'
+        WHERE s.due IS NULL OR s.due <= ?
+    """, (hoje,)).fetchall()
+    return [dict(r) for r in rows]
+
 
 def get_flashcards_by_tags(tags):
     if not tags:
@@ -111,7 +185,7 @@ def get_flashcards_by_tags(tags):
     rows = conn.execute(query, tags).fetchall()
     return [{"front": r["front"], "back": r["back"]} for r in rows]
 
-# --- NOVA FUNÇÃO: Registrar a confusão no banco de dados ---
+
 def registrar_confusao(tag_correct, tag_confused):
     conn = get_conn()
     agora = datetime.now(timezone.utc).isoformat()
@@ -122,3 +196,45 @@ def registrar_confusao(tag_correct, tag_confused):
         DO UPDATE SET count = count + 1, last_seen = excluded.last_seen
     """, (tag_correct, tag_confused, agora))
     conn.commit()
+
+
+def get_tags_em_cooldown(horas=48):
+    conn = get_conn()
+    corte_tempo = (datetime.now(timezone.utc) - timedelta(hours=horas)).isoformat()
+    rows = conn.execute("""
+        SELECT DISTINCT t.tag
+        FROM item_tags t
+        JOIN questions q ON t.object_id = q.id
+        WHERE q.created_at >= ?
+    """, (corte_tempo,)).fetchall()
+    return [r["tag"] for r in rows]
+
+
+def registrar_cooldown_tags(tags):
+    pass
+
+
+def get_top_confounders(tag_correct, limit=3):
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT tag_confused 
+        FROM confusion_pairs 
+        WHERE tag_correct = ? 
+        ORDER BY count DESC 
+        LIMIT ?
+    """, (tag_correct, limit)).fetchall()
+    return [r["tag_confused"] for r in rows]
+
+
+def get_system_stats():
+    """Retorna as estatísticas de acerto por sistema do histórico de questões."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT sistema,
+               SUM(CASE WHEN answered_correctly = 1 THEN 1 ELSE 0 END) as acertos,
+               COUNT(*) as total
+        FROM questions
+        WHERE answered_correctly IS NOT NULL
+        GROUP BY sistema
+    """).fetchall()
+    return [dict(r) for r in rows]

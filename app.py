@@ -7,13 +7,14 @@ from database import *
 from ai_engine import *
 from scheduler import *
 from backup import *
+from flashcard_engine import orquestrar_flashcards, gerar_flashcard_sob_demanda, gerar_mais_flashcards
 
 import streamlit as st
-from google import genai
 import json
 import uuid
 import pandas as pd
 import datetime
+import time
 
 # ==============================================================================
 # DATABASE & STARTUP
@@ -35,17 +36,18 @@ def hoje_str():
 # SESSION STATE (Gerenciamento da Fila de Estudos)
 # ==============================================================================
 DEFAULTS = {
-    "modo_estudo": None,  # None, "Review", "QBank", "Interleaved"
+    "modo_estudo": None,  
     "fila_estudo": [],
     "idx_atual": 0,
-    
-    # Estados da Questão
     "resposta_submetida": False,
     "letra_escolhida": None,
     "acertou_ultima": False,
-    
-    # Estados do Flashcard
-    "revelar_flashcard": False
+    "confianca_escolhida": None,
+    "tempo_inicio_questao": None,
+    "tempo_gasto": None,
+    "revelar_flashcard": False,
+    "flashcards_rascunho": [],  # <--- Adicionado explicitamente aqui
+    "flashcards_salvos": False
 }
 
 for k, v in DEFAULTS.items():
@@ -55,6 +57,10 @@ for k, v in DEFAULTS.items():
 def sair_do_modo_estudo():
     for k in DEFAULTS.keys():
         del st.session_state[k]
+    # Limpa os rascunhos à força ao sair
+    st.session_state["flashcards_rascunho"] = []
+    st.session_state["flashcards_salvos"] = False
+    st.session_state["checagem_feita"] = False
     st.rerun()
 
 def proximo_item_fila():
@@ -62,6 +68,17 @@ def proximo_item_fila():
     st.session_state["resposta_submetida"] = False
     st.session_state["letra_escolhida"] = None
     st.session_state["revelar_flashcard"] = False
+    st.session_state["tempo_inicio_questao"] = None
+    st.session_state["confianca_escolhida"] = None
+    st.session_state["tempo_gasto"] = None
+    
+    # EM VEZ DE DELETAR, NÓS ESVAZIAMOS AS LISTAS E VARIÁVEIS À FORÇA
+    st.session_state["flashcards_rascunho"] = []
+    st.session_state["flashcards_salvos"] = False
+    st.session_state["checagem_feita"] = False
+    
+    st.rerun()
+    
     if "flashcards_rascunho" in st.session_state:
         del st.session_state["flashcards_rascunho"]
     if "flashcards_salvos" in st.session_state:
@@ -70,11 +87,8 @@ def proximo_item_fila():
         del st.session_state["checagem_feita"]
     st.rerun()
 
-# ==============================================================================
-# DATABASE OPS (Auxiliares do App)
-# ==============================================================================
-def salvar_resultado_pendente(q_id, sistema, is_correct, tags):
-    marcar_questao_respondida(q_id, is_correct)
+def salvar_resultado_pendente(q_id, sistema, is_correct, tags, time_taken, confidence):
+    marcar_questao_respondida(q_id, is_correct, time_taken, confidence)
     conn = get_conn()
 
     for tag in tags:
@@ -108,7 +122,6 @@ tab1, tab2, tab3, tab4 = st.tabs(["🏠 Dashboard", "🎯 Targeted Practice", "�
 # TAB 1: DASHBOARD E MODO DE ESTUDO
 # ==============================================================================
 with tab1:
-    # --- TELA INICIAL DO DASHBOARD ---
     if st.session_state["modo_estudo"] is None:
         cards_hoje = get_cards_hoje()
         questoes_pendentes = get_pending_questions()
@@ -119,24 +132,37 @@ with tab1:
         
         st.markdown("---")
         st.subheader("1. Planejamento Semanal & Preparação")
-        sistemas_semana = st.multiselect("Selecione os Sistemas foco desta semana:", SISTEMAS_DISPONIVEIS, default=SISTEMAS_DISPONIVEIS[:2])
-        qtd_gerar = st.slider("Quantas questões inéditas preparar no Lote?", min_value=1, max_value=10, value=3)
         
+        qtd_gerar = st.slider("Quantas questões deseja gerar neste lote?", min_value=1, max_value=10, value=3)
+        
+        from scheduler import gerar_planos_estudo
+        planos = gerar_planos_estudo()
+        
+        c_box1, c_box2, c_box3 = st.columns(3)
         gerando_agora = False
         
-        if st.button("⚙️ Preparar Sessão (Gerar Batch)", use_container_width=True):
-            gerando_agora = True
-            if not api_key:
-                st.error("API Key necessária.")
-                gerando_agora = False
-            else:
-                with st.spinner(f"A IA está gerando {qtd_gerar} questões focadas nas suas fraquezas de {len(sistemas_semana)} sistemas..."):
-                    sucessos = gerar_lote_background(sistemas_semana, dificuldade, api_key, qtd_questoes=qtd_gerar)
-                    st.success(f"{sucessos} Questões geradas com sucesso e adicionadas à fila!")
-                    st.rerun()
+        for col, plano, i in zip([c_box1, c_box2, c_box3], planos, range(3)):
+            with col:
+                with st.container(border=True):
+                    st.markdown(f"**{plano['titulo']}**")
+                    for s in plano['sistemas']:
+                        st.write(f"- {s}")
+                    
+                    st.write("")
+                    
+                    if st.button(f"Gerar Plano {i+1}", use_container_width=True, key=f"btn_plano_{i}"):
+                        gerando_agora = True
+                        if not api_key:
+                            st.error("API Key necessária.")
+                        else:
+                            with st.spinner(f"Gerando {qtd_gerar} questões para {', '.join(plano['sistemas'])}..."):
+                                sucessos = gerar_lote_background(plano['sistemas'], dificuldade, api_key, qtd_questoes=qtd_gerar)
+                                st.success(f"{sucessos} Questões geradas!")
+                                st.rerun()
 
         st.markdown("---")
         st.subheader("2. Escolha seu Modo de Estudo de Hoje")
+        
         c1, c2, c3 = st.columns(3)
         
         with c1:
@@ -155,7 +181,6 @@ with tab1:
                 st.session_state["fila_estudo"] = montar_fila_estudo("Interleaved")
                 st.rerun()
 
-    # --- TELA DO MODO DE ESTUDO (A PLAYLIST) ---
     else:
         fila = st.session_state["fila_estudo"]
         idx = st.session_state["idx_atual"]
@@ -184,7 +209,6 @@ with tab1:
                         st.rerun()
                 else:
                     st.success(card["back"])
-                    
                     hoje_data = now_utc().date()
                     try:
                         last_rev_data = datetime.datetime.strptime(card["last_review"], "%Y-%m-%d").date()
@@ -192,7 +216,7 @@ with tab1:
                     except:
                         elapsed_days = 0
 
-                    st.markdown("### 🧠 Saúde da Memória (sd.py)")
+                    st.markdown("### 🧠 Saúde da Memória")
                     estado_memoria = process_sd(card["stability"], card["difficulty"], max(0, elapsed_days))
                     st.json(estado_memoria)
                     st.markdown("---")
@@ -212,13 +236,15 @@ with tab1:
 
                                 conn = get_conn()
                                 conn.execute("""
-                                    UPDATE srs_state
-                                    SET repetitions=?, stability=?, difficulty=?, last_review=?, due=?, lapses=?
-                                    WHERE object_id=? AND object_type=?
-                                """, (reps, s, d, hoje_str(), prox, lapses, card["id"], ItemType.FLASHCARD.value))
+                                    INSERT INTO srs_state (object_id, object_type, repetitions, stability, difficulty, last_review, due, lapses)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                    ON CONFLICT(object_id, object_type) 
+                                    DO UPDATE SET repetitions=excluded.repetitions, stability=excluded.stability, 
+                                    difficulty=excluded.difficulty, last_review=excluded.last_review, due=excluded.due, lapses=excluded.lapses
+                                """, (card["id"], ItemType.FLASHCARD.value, reps, s, d, hoje_str(), prox, lapses))
                                 conn.commit()
 
-                                st.toast(f"D:{d:.1f} | S:{s:.1f} -> Próximo: {interval} dia(s)")
+                                st.toast(f"D:{d:.1f} | S:{s:.1f} -> Próximo em: {interval} dia(s)")
                                 proximo_item_fila()
 
             # ==========================================
@@ -228,39 +254,59 @@ with tab1:
                 q_db = item_atual["item"]
                 q = json.loads(q_db["question_json"])
                 
+                if st.session_state["tempo_inicio_questao"] is None:
+                    st.session_state["tempo_inicio_questao"] = time.time()
+
                 st.markdown(f"## 📝 Questão de {q_db['sistema']} ({q_db['dificuldade']})")
                 st.info(q["vignette"])
 
-                escolha = st.radio("Escolha:", q["options"], index=None, disabled=st.session_state["resposta_submetida"])
+                escolha = st.radio("Escolha a melhor alternativa:", q["options"], index=None, disabled=st.session_state["resposta_submetida"])
+                
+                st.write("**Qual seu nível de confiança nesta resposta?**")
+                confianca = st.radio(
+                    "Confiança", 
+                    ["Certeza Absoluta", "Dúvida entre 2", "Chute Cego"], 
+                    horizontal=True, 
+                    index=None,
+                    label_visibility="collapsed",
+                    disabled=st.session_state["resposta_submetida"]
+                )
 
                 if not st.session_state["resposta_submetida"]:
-            if st.button("Submeter", disabled=(escolha is None)):
-                letra = escolha[0].upper()
-                correto = (letra == q["correct"])
+                    if st.button("Submeter", disabled=(escolha is None or confianca is None)):
+                        tempo_gasto = int(time.time() - st.session_state["tempo_inicio_questao"])
+                        letra = escolha[0].upper()
+                        correto = (letra == q["correct"])
 
-                st.session_state["resposta_submetida"] = True
-                st.session_state["acertou_ultima"] = correto
-                st.session_state["letra_escolhida"] = letra
+                        st.session_state["resposta_submetida"] = True
+                        st.session_state["acertou_ultima"] = correto
+                        st.session_state["letra_escolhida"] = letra
+                        st.session_state["confianca_escolhida"] = confianca
+                        st.session_state["tempo_gasto"] = tempo_gasto
 
-                # Grava o resultado normal no banco de dados
-                salvar_resultado(sistema, dificuldade, correto, q, q["content_tags"])
+                        salvar_resultado_pendente(q_db["id"], q_db["sistema"], correto, q["content_tags"], tempo_gasto, confianca)
 
-                # --- REGISTRA O PAR DE CONFUSÃO CASO TENHA ERRADO ---
-                if not correto:
-                    dist_tags = q.get("distractor_tags", {})
-                    tag_correta = dist_tags.get(q["correct"])
-                    tag_errada = dist_tags.get(letra)
-                    
-                    if tag_correta and tag_errada:
-                        registrar_confusao(tag_correta, tag_errada)
+                        if not correto and confianca != "Chute Cego":
+                            dist_tags = q.get("distractor_tags", {})
+                            tag_correta = dist_tags.get(q["correct"])
+                            tag_errada = dist_tags.get(letra)
+                            if tag_correta and tag_errada:
+                                registrar_confusao(tag_correta, tag_errada)
 
-                st.rerun()
+                        st.rerun()
                 
                 if st.session_state["resposta_submetida"]:
+                    t_gasto = st.session_state["tempo_gasto"]
                     if st.session_state["acertou_ultima"]:
-                        st.success("Correto!")
+                        if st.session_state["confianca_escolhida"] == "Chute Cego":
+                            st.warning(f"⚠️ Correto, mas foi um Chute Cego! (Tempo: {t_gasto}s)")
+                        else:
+                            st.success(f"✅ Correto! (Tempo: {t_gasto}s)")
                     else:
-                        st.error(f"Errado. Correta: {q['correct']}")
+                        st.error(f"❌ Errado. Correta: {q['correct']} (Tempo: {t_gasto}s)")
+                        
+                    if t_gasto > 90:
+                        st.caption("⏱️ *Aviso: Você passou da marca de 90 segundos do USMLE.*")
 
                     st.markdown("---")
                     for opcao in q["options"]:
@@ -273,44 +319,108 @@ with tab1:
 
                     st.info(f"**Educational Objective:**\n{q['educational_objective']}")
                     st.caption(" | ".join(q["content_tags"]))
+
+                    # ==========================================
+                    # PAINEL DE FORJA DE FLASHCARDS (100% Manual)
+                    # ==========================================
+                    st.markdown("---")
+                    st.markdown("### 🛠️ Forja de Flashcards")
                     
-                    if not st.session_state["acertou_ultima"]:
-                        st.markdown("### 💡 Flashcards Inteligentes")
-                        if st.session_state.get("flashcards_salvos", False):
-                            st.success("✅ Cards salvos no Baralho!")
-                        else:
-                            if "flashcards_rascunho" not in st.session_state:
-                                with st.spinner("Checando duplicatas e criando cards atômicos..."):
-                                    cards_existentes = get_flashcards_by_tags(q["content_tags"])
-                                    cards_ia = gerar_flashcards_ia(q, st.session_state["letra_escolhida"], cards_existentes, api_key)
-                                    st.session_state["flashcards_rascunho"] = cards_ia
-                                    st.session_state["checagem_feita"] = True
+                    # Linha 1: Botões de Geração Rápida
+                    col_btn_erro, col_btn_mais = st.columns(2)
+                    with col_btn_erro:
+                        if st.button("💡 Analisar meu Erro/Chute", use_container_width=True):
+                            with st.spinner("Analisando seu viés cognitivo..."):
+                                cards_ia = orquestrar_flashcards(
+                                    q, 
+                                    st.session_state["letra_escolhida"], 
+                                    st.session_state["acertou_ultima"],
+                                    st.session_state["confianca_escolhida"],
+                                    api_key
+                                )
+                                if cards_ia:
+                                    if "flashcards_rascunho" not in st.session_state:
+                                        st.session_state["flashcards_rascunho"] = []
+                                    st.session_state["flashcards_rascunho"].extend(cards_ia)
                                     st.rerun()
 
-                            rascunhos = st.session_state.get("flashcards_rascunho", [])
-                            if rascunhos:
-                                chave_unica = q_db["id"]
-                                with st.form(key=f"form_{chave_unica}"):
-                                    editados = []
-                                    for i, card in enumerate(rascunhos):
-                                        st.write(f"**Card {i+1}**")
-                                        novo_front = st.text_area("Front", value=card.get("front", ""), key=f"f_{i}_{chave_unica}")
-                                        novo_back = st.text_area("Back", value=card.get("back", ""), key=f"b_{i}_{chave_unica}")
-                                        editados.append({"front": novo_front, "back": novo_back, "tags": card.get("tags", q["content_tags"])})
-                                    
-                                    if st.form_submit_button("Aprovar e Salvar"):
-                                        for c in editados:
-                                            salvar_flashcard_db(c["front"], c["back"], q_db["sistema"], c["tags"])
-                                        st.session_state["flashcards_salvos"] = True
-                                        st.rerun()
-                            elif st.session_state.get("checagem_feita", False):
-                                st.success("Nenhum card novo gerado. Seus cards atuais já cobrem este erro.")
+                    with col_btn_mais:
+                        if st.button("➕ Explorar Outros Ângulos", use_container_width=True):
+                            with st.spinner("Buscando novos ângulos da doença..."):
+                                atuais = st.session_state.get("flashcards_rascunho", [])
+                                novos_cards = gerar_mais_flashcards(q, atuais, api_key)
+                                if novos_cards:
+                                    if "flashcards_rascunho" not in st.session_state:
+                                        st.session_state["flashcards_rascunho"] = []
+                                    st.session_state["flashcards_rascunho"].extend(novos_cards)
+                                    st.rerun()
 
+                    # Linha 2: Geração Sob Demanda
+                    st.write("") # Espaçamento
+                    col_input, col_btn_especifico = st.columns([3, 1])
+                    with col_input:
+                        pedido_customizado = st.text_input(
+                            "Lacuna Específica", 
+                            placeholder="Ex: Fisiopatologia da alternativa C", 
+                            label_visibility="collapsed"
+                        )
+                    with col_btn_especifico:
+                        if st.button("🎯 Gerar Específico", use_container_width=True):
+                            if pedido_customizado:
+                                with st.spinner("Forjando card sob demanda..."):
+                                    novos_cards = gerar_flashcard_sob_demanda(q, pedido_customizado, api_key)
+                                    if novos_cards:
+                                        if "flashcards_rascunho" not in st.session_state:
+                                            st.session_state["flashcards_rascunho"] = []
+                                        st.session_state["flashcards_rascunho"].extend(novos_cards)
+                                        st.rerun()
+                            else:
+                                st.warning("Digite algo ao lado.")
+
+                    # ==========================================
+                    # EXIBIÇÃO E APROVAÇÃO DOS RASCUNHOS
+                    # ==========================================
+                    if st.session_state.get("flashcards_salvos", False):
+                        st.success("✅ Cards salvos no Baralho!")
+                    else:
+                        rascunhos = st.session_state.get("flashcards_rascunho", [])
+                        
+                        # NOVA REGRA: Só desenha se a lista REALMENTE tiver algo novo
+                        if len(rascunhos) > 0:
+                            st.markdown("---")
+                            
+                            # Amarramos a chave do Form ao ID exato desta questão
+                            chave_unica = f"form_{q_db['id']}" 
+                            
+                            with st.form(key=chave_unica):
+                                editados = []
+                                for i, card in enumerate(rascunhos):
+                                    st.write(f"**Card {i+1}**")
+                                    # As chaves text_area agora também são exclusivas dessa questão!
+                                    key_front = f"f_{i}_{q_db['id']}"
+                                    key_back = f"b_{i}_{q_db['id']}"
+                                    
+                                    novo_front = st.text_area("Q (Front)", value=card.get("front", ""), key=key_front)
+                                    novo_back = st.text_area("A (Back)", value=card.get("back", ""), key=key_back)
+                                    
+                                    editados.append({
+                                        "front": novo_front, 
+                                        "back": novo_back, 
+                                        "tags": card.get("tags", q["content_tags"])
+                                    })
+                                
+                                if st.form_submit_button("Aprovar e Salvar Todos"):
+                                    for c in editados:
+                                        salvar_flashcard_db(c["front"], c["back"], q_db["sistema"], c["tags"])
+                                    st.session_state["flashcards_salvos"] = True
+                                    st.rerun()
+
+                    st.markdown("---")
                     if st.button("Próximo Item ➡️", use_container_width=True, type="primary"):
                         proximo_item_fila()
 
 # ==============================================================================
-# TAB 2: TARGETED PRACTICE (Brute Force Mode)
+# TAB 2, 3 E 4
 # ==============================================================================
 with tab2:
     st.header("🎯 Prática Focada (Brute Force)")
@@ -332,7 +442,6 @@ with tab2:
             with st.spinner(f"Gerando questão focada em {tag_alvo}..."):
                 q_brute = gerar_questao(sys_brute, dificuldade, api_key, tags_alvo=[tag_alvo])
                 if q_brute:
-                    from database import salvar_questao
                     salvar_questao(sys_brute, dificuldade, q_brute, False, q_brute["content_tags"], status="answered")
                     st.success("Questão gerada e salva no seu Histórico!")
                     with st.expander("Ver Questão Gerada", expanded=True):
@@ -341,9 +450,6 @@ with tab2:
                             st.write(opt)
                         st.success(f"Correta: {q_brute['correct']}")
 
-# ==============================================================================
-# TAB 3: ANALYTICS
-# ==============================================================================
 with tab3:
     stats = get_tag_stats()
     st.subheader("Weak Areas & Mastery")
@@ -369,9 +475,6 @@ with tab3:
                 for _, row in criticos.iterrows():
                     st.write(f"- {row['Tag']} ({row['Accuracy (%)']}%)")
 
-# ==============================================================================
-# TAB 4: HISTORY
-# ==============================================================================
 with tab4:
     st.header("Question History")
     questions = get_questions()

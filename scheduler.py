@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 from config import SISTEMAS_DISPONIVEIS
 from database import (
     get_conn, get_tags_em_cooldown, get_pending_questions, 
-    get_cards_hoje, salvar_questao, registrar_cooldown_tags
+    get_cards_hoje, salvar_questao, registrar_cooldown_tags,
+    get_system_stats  # <-- Adicionado aqui!
 )
 from analytics import get_tag_stats
 from mastery import classify_tag
@@ -127,3 +128,118 @@ def gerar_lote_background(sistemas_semana, dificuldade, api_key, qtd_questoes=3)
             sucessos += 1
             
     return sucessos
+
+# ==============================================================================
+# 4. PLANNER PEDAGÓGICO (ZONA DE DESENVOLVIMENTO PROXIMAL)
+# ==============================================================================
+def sugerir_sistemas(limit=3):
+    """
+    Usa regras de Carga Cognitiva para orquestrar a sessão perfeita.
+    """
+    rows = get_system_stats()
+
+    if not rows:
+        # Se for o primeiro dia de uso absoluto do app
+        return [(s, "Avaliação Diagnóstica (Inédito)") for s in random.sample(SISTEMAS_DISPONIVEIS, limit)]
+
+    stats = {r["sistema"]: (r["acertos"] / r["total"]) for r in rows if r["total"] > 0}
+    
+    total_acertos = sum(r["acertos"] for r in rows)
+    total_questoes = sum(r["total"] for r in rows)
+    acuracia_global = total_acertos / total_questoes if total_questoes > 0 else 0
+
+    # Categorização
+    unseen = [s for s in SISTEMAS_DISPONIVEIS if s not in stats]
+    critical = [s for s, pct in stats.items() if pct < 0.50]
+    developing = [s for s, pct in stats.items() if 0.50 <= pct < 0.75]
+    mastered = [s for s, pct in stats.items() if pct >= 0.75]
+
+    critical.sort(key=lambda x: stats[x])
+    developing.sort(key=lambda x: stats[x])
+    mastered.sort(key=lambda x: stats[x])
+
+    recomendações = []
+
+    # SLOT 1: A HEMORRAGIA
+    if critical:
+        sys = critical.pop(0)
+        recomendações.append((sys, f"Intervenção Aguda ({stats[sys]*100:.0f}%) - Foco em tapar lacunas de base."))
+    elif developing:
+        sys = developing.pop(0)
+        recomendações.append((sys, f"Consolidação ({stats[sys]*100:.0f}%) - Foco em refinar o diagnóstico diferencial."))
+
+    # SLOT 2: A CONSTRUÇÃO
+    if developing:
+        sys = developing.pop(0)
+        recomendações.append((sys, f"Aprimoramento Clínico ({stats[sys]*100:.0f}%) - Foco em armadilhas de distratores."))
+    elif critical:
+        sys = critical.pop(0)
+        recomendações.append((sys, f"Remediação Secundária ({stats[sys]*100:.0f}%) - Necessita revisão de conceitos vitais."))
+    elif mastered:
+        sys = mastered.pop(0)
+        recomendações.append((sys, f"Manutenção de Domínio ({stats[sys]*100:.0f}%) - Prevenção de esquecimento (FSRS)."))
+
+    # SLOT 3: NOVO vs REVISÃO
+    if acuracia_global > 0.60 and unseen:
+        sys = unseen.pop(0)
+        recomendações.append((sys, "Expansão de Fronteira (Inédito) - Base sólida permite aprender novos sistemas."))
+    else:
+        if developing:
+            sys = developing.pop(0)
+            recomendações.append((sys, f"Reforço de Base ({stats[sys]*100:.0f}%) - Sobrecarga evitada. Matéria nova suspensa."))
+        elif mastered:
+            sys = mastered.pop(0)
+            recomendações.append((sys, f"Reativação Passiva ({stats[sys]*100:.0f}%) - Aumentar confiança e fixar matéria antiga."))
+
+    return recomendações[:limit]
+from database import get_system_stats
+import random
+from config import SISTEMAS_DISPONIVEIS
+
+from database import get_system_stats
+import random
+from config import SISTEMAS_DISPONIVEIS
+
+from database import get_system_stats
+import random
+from config import SISTEMAS_DISPONIVEIS
+
+def gerar_planos_estudo():
+    """Gera 3 planos (combos de sistemas) para a tela inicial."""
+    rows = get_system_stats()
+    
+    # Se o app for novo e não tiver dados, sugere combos aleatórios
+    if not rows:
+        return [
+            {"titulo": "Combo 1", "sistemas": random.sample(SISTEMAS_DISPONIVEIS, 2)},
+            {"titulo": "Combo 2", "sistemas": random.sample(SISTEMAS_DISPONIVEIS, 2)},
+            {"titulo": "Combo 3", "sistemas": random.sample(SISTEMAS_DISPONIVEIS, 2)}
+        ]
+
+    stats = {r["sistema"]: (r["acertos"] / r["total"]) for r in rows if r["total"] > 0}
+    unseen = [s for s in SISTEMAS_DISPONIVEIS if s not in stats]
+    
+    critical = sorted([s for s in stats if stats[s] < 0.50], key=lambda x: stats[x])
+    developing = sorted([s for s in stats if 0.50 <= stats[s] < 0.75], key=lambda x: stats[x])
+    mastered = sorted([s for s in stats if stats[s] >= 0.75], key=lambda x: stats[x])
+    
+    planos = []
+
+    # CAIXA 1: Os piores sistemas (Hemorragia)
+    sistemas_c1 = critical[:2] if len(critical) >= 2 else (critical + developing)[:2]
+    if not sistemas_c1: sistemas_c1 = random.sample(SISTEMAS_DISPONIVEIS, 2)
+    planos.append({"titulo": "🚨 Foco Crítico", "sistemas": sistemas_c1})
+
+    # CAIXA 2: Sistemas medianos + Inéditos
+    sistemas_c2 = []
+    if developing: sistemas_c2.append(developing[-1])
+    if unseen: sistemas_c2.append(unseen[0])
+    if len(sistemas_c2) < 2: sistemas_c2 = random.sample(SISTEMAS_DISPONIVEIS, 2)
+    planos.append({"titulo": "🏗️ Construção", "sistemas": sistemas_c2})
+
+    # CAIXA 3: Inéditos + Domínio
+    sistemas_c3 = unseen[:2] if len(unseen) >= 2 else (unseen + mastered)[:2]
+    if len(sistemas_c3) < 2: sistemas_c3 = random.sample(SISTEMAS_DISPONIVEIS, 2)
+    planos.append({"titulo": "🧭 Expansão", "sistemas": sistemas_c3})
+
+    return planos

@@ -1,7 +1,6 @@
 from database import get_conn
 
 def get_tag_stats():
-
     conn = get_conn()
 
     rows = conn.execute("""
@@ -17,8 +16,7 @@ def get_tag_stats():
         for r in rows
     }
 
-def get_weak_tags(limit=5):
-
+def get_weak_tags(limit=5, allowed_tags=None):
     stats = get_tag_stats()
 
     if not stats:
@@ -27,6 +25,9 @@ def get_weak_tags(limit=5):
     data = []
 
     for tag, s in stats.items():
+        # Se recebemos uma lista de tags permitidas (do sistema atual), ignoramos as outras
+        if allowed_tags and tag not in allowed_tags:
+            continue
 
         if s["total"] == 0:
             continue
