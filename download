@@ -1,0 +1,31 @@
+# Banco de dados
+*.db
+*.db-shm
+*.db-wal
+
+# Backups automáticos
+backups/
+
+# Ambiente virtual Python
+venv/
+env/
+.env/
+
+# Cache do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Secrets e variáveis de ambiente
+.env
+.streamlit/secrets.toml
+
+# IDEs
+.vscode/
+.idea/
+*.code-workspace
+
+# Sistema operacional
+.DS_Store
+Thumbs.db

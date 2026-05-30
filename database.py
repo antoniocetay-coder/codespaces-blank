@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import uuid
+import streamlit as st
 from enum import Enum
 from datetime import datetime, timezone, timedelta
 from config import *
@@ -9,6 +10,7 @@ class ItemType(Enum):
     FLASHCARD = "flashcard"
     QUESTION  = "question"
 
+@st.cache_resource
 def get_conn():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -67,12 +69,11 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_obj ON item_tags(object_id, object_type)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_confusion_pairs ON confusion_pairs(tag_correct)")
 
-    # Atualização dinâmica do esquema (Metacognição e Tempo)
     try:
         conn.execute("ALTER TABLE questions ADD COLUMN time_taken_seconds INTEGER")
         conn.execute("ALTER TABLE questions ADD COLUMN confidence_level TEXT")
     except sqlite3.OperationalError:
-        pass # As colunas já existem
+        pass
 
     for s in SISTEMAS_DISPONIVEIS:
         conn.execute("INSERT OR IGNORE INTO erros_por_sistema (sistema, total) VALUES (?, 0)", (s,))
@@ -83,24 +84,21 @@ def init_db():
 def salvar_questao(sistema, dificuldade, questao, acertou, tags, status="answered"):
     conn = get_conn()
     q_id = str(uuid.uuid4())
-    
-    # Se status for "pending", inserimos NULL no answered_correctly
     ans_val = None if status == "pending" else int(acertou)
-    
-    # Adicionada a especificação das colunas (id, sistema, dificuldade, question_json, correct_answer, answered_correctly, created_at)
+
     conn.execute("""
         INSERT INTO questions (id, sistema, dificuldade, question_json, correct_answer, answered_correctly, created_at) 
         VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (
-        q_id, 
-        sistema, 
-        dificuldade, 
+        q_id,
+        sistema,
+        dificuldade,
         json.dumps(questao, ensure_ascii=False),
-        questao["correct"], 
-        ans_val, 
+        questao["correct"],
+        ans_val,
         datetime.now(timezone.utc).isoformat()
     ))
-    
+
     for tag in tags:
         conn.execute("INSERT INTO item_tags (object_id, object_type, tag) VALUES (?, ?, ?)", (q_id, ItemType.QUESTION.value, tag))
     conn.commit()
@@ -146,7 +144,7 @@ def salvar_flashcard_db(front, back, sistema, tags):
     conn = get_conn()
     f_id = str(uuid.uuid4())
     conn.execute("INSERT INTO flashcards (id, front, back, sistema) VALUES (?, ?, ?, ?)", (f_id, front, back, sistema))
-    
+
     for tag in tags:
         conn.execute("INSERT INTO item_tags (object_id, object_type, tag) VALUES (?, ?, ?)", (f_id, ItemType.FLASHCARD.value, tag))
     conn.commit()
@@ -155,7 +153,7 @@ def salvar_flashcard_db(front, back, sistema, tags):
 def get_cards_hoje():
     conn = get_conn()
     hoje = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    
+
     rows = conn.execute("""
         SELECT f.*, 
                COALESCE(s.stability, 0) as stability, 
@@ -211,6 +209,11 @@ def get_tags_em_cooldown(horas=48):
 
 
 def registrar_cooldown_tags(tags):
+    """
+    O cooldown já é controlado implicitamente via created_at das questões
+    em get_tags_em_cooldown(). Esta função existe por compatibilidade de interface
+    e pode ser usada futuramente para um registro explícito de cooldown, se necessário.
+    """
     pass
 
 
@@ -227,7 +230,6 @@ def get_top_confounders(tag_correct, limit=3):
 
 
 def get_system_stats():
-    """Retorna as estatísticas de acerto por sistema do histórico de questões."""
     conn = get_conn()
     rows = conn.execute("""
         SELECT sistema,
@@ -238,8 +240,9 @@ def get_system_stats():
         GROUP BY sistema
     """).fetchall()
     return [dict(r) for r in rows]
+
+
 def get_metacognition_stats():
-    """Retorna dados cruzando confiança vs acerto."""
     conn = get_conn()
     rows = conn.execute("""
         SELECT confidence_level, answered_correctly, COUNT(*) as qtd
@@ -249,8 +252,8 @@ def get_metacognition_stats():
     """).fetchall()
     return [dict(r) for r in rows]
 
+
 def get_time_stats():
-    """Retorna o tempo médio gasto por sistema e por acerto/erro."""
     conn = get_conn()
     rows = conn.execute("""
         SELECT sistema, answered_correctly, AVG(time_taken_seconds) as avg_time
@@ -260,8 +263,8 @@ def get_time_stats():
     """).fetchall()
     return [dict(r) for r in rows]
 
+
 def get_fsrs_forecast():
-    """Previsão de revisões de Flashcards para os próximos dias."""
     conn = get_conn()
     rows = conn.execute("""
         SELECT due, COUNT(*) as qtd
@@ -273,8 +276,8 @@ def get_fsrs_forecast():
     """).fetchall()
     return [dict(r) for r in rows]
 
+
 def get_global_confusions(limit=10):
-    """Retorna o Top 10 das maiores armadilhas que você cai."""
     conn = get_conn()
     rows = conn.execute("""
         SELECT tag_correct, tag_confused, count
