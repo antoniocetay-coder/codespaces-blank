@@ -172,6 +172,8 @@ def montar_fila_estudo(modo_escolhido):
 # ==============================================================================
 # 3. GERAÇÃO EM BATCH (OTIMIZADO)
 # ==============================================================================
+# No final do scheduler.py, substitua a função gerar_lote_background:
+
 def gerar_lote_background(sistemas_semana, dificuldade, api_key, qtd_questoes=3):
     sucessos = 0
     if not sistemas_semana:
@@ -195,7 +197,27 @@ def gerar_lote_background(sistemas_semana, dificuldade, api_key, qtd_questoes=3)
         sistema = random.choice(sistemas_semana)
         tags_alvo = selecionar_tags_estrategicas([sistema], qtd_tags=chunk_size)
         
-        questoes_geradas = gerar_lote_questoes(sistema, dificuldade, api_key, tags_alvo, chunk_size)
+        # ==========================================
+        # NOVIDADE: CALCULA O COGNITIVE LEVEL
+        # ==========================================
+        stats = get_tag_stats()
+        bkt_sum = 0
+        for t in tags_alvo:
+            s = stats.get(t, {})
+            prob = s.get("mastery_prob", 0.15) if s.get("mastery_prob") is not None else 0.15
+            bkt_sum += prob
+            
+        media_bkt = bkt_sum / len(tags_alvo) if tags_alvo else 0.15
+        
+        if media_bkt < 0.50:
+            cognitive_order = "1st Order (Diagnosis/Presentation)"
+        elif media_bkt < 0.80:
+            cognitive_order = "2nd Order (Pathophysiology/Next Step in Management)"
+        else:
+            cognitive_order = "3rd Order (Pharmacology Mechanism/Embryology/Genetic Defect)"
+            
+        # Faz a chamada enviando o Nível Cognitivo!
+        questoes_geradas = gerar_lote_questoes(sistema, dificuldade, cognitive_order, api_key, tags_alvo, chunk_size)
         
         for q in questoes_geradas:
             salvar_questao(sistema, dificuldade, q, acertou=False, tags=q["content_tags"], status="pending")
