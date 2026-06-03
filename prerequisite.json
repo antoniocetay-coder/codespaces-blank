@@ -1,0 +1,647 @@
+{
+  "STEMI": [
+    "Coronary Circulation",
+    "Left Anterior Descending Artery",
+    "Right Coronary Artery",
+    "Cardiac Action Potential",
+    "Coagulative Necrosis"
+  ],
+  "NSTEMI": [
+    "Coronary Circulation",
+    "Stable Angina",
+    "Frank-Starling Law"
+  ],
+  "Acute Coronary Syndrome": [
+    "Coronary Circulation",
+    "Virchow Triad",
+    "Thrombus Formation",
+    "Myocardial Infarction"
+  ],
+  "Ventricular Free Wall Rupture": [
+    "Myocardial Infarction",
+    "Cardiac Layers",
+    "Pericardium"
+  ],
+  "Papillary Muscle Rupture": [
+    "Myocardial Infarction",
+    "Mitral Regurgitation"
+  ],
+  "Dressler Syndrome": [
+    "Myocardial Infarction",
+    "Type III Hypersensitivity",
+    "Pericarditis"
+  ],
+  "Cardiac Tamponade": [
+    "Pericardium",
+    "Pericarditis",
+    "Beck Triad",
+    "Pulsus Paradoxus"
+  ],
+  "Cor Pulmonale": [
+    "Pulmonary Hypertension (Primary)",
+    "Right Heart Failure",
+    "Pulmonary Vascular Resistance"
+  ],
+  "Systolic Heart Failure": [
+    "Cardiac Output",
+    "Frank-Starling Law",
+    "Afterload",
+    "Preload"
+  ],
+  "Diastolic Heart Failure": [
+    "Cardiac Output",
+    "Preload",
+    "Hypertrophic Cardiomyopathy"
+  ],
+  "Eisenmenger Syndrome": [
+    "Ventricular Septal Defect",
+    "Atrial Septal Defect",
+    "Patent Ductus Arteriosus",
+    "Pulmonary Hypertension (Primary)"
+  ],
+  "Aortic Dissection": [
+    "Aorta",
+    "Primary Hypertension",
+    "Marfan Syndrome",
+    "Fibrillin"
+  ],
+  "Infective Endocarditis": [
+    "Virchow Triad",
+    "Staphylococcus aureus",
+    "Viridans Streptococci",
+    "Duke Criteria"
+  ],
+  "Rheumatic Heart Disease": [
+    "Streptococcus pyogenes (Group A)",
+    "Type II Hypersensitivity",
+    "Molecular Mimicry",
+    "Jones Criteria"
+  ],
+  "Torsades de Pointes": [
+    "Long QT Syndrome",
+    "Ventricular Tachycardia",
+    "Class IA Antiarrhythmics"
+  ],
+  "WPW Syndrome": [
+    "Cardiac Action Potential",
+    "AV Node",
+    "Atrial Fibrillation"
+  ],
+  "Hypertensive Emergency": [
+    "Primary Hypertension",
+    "Malignant Hypertension",
+    "Baroreceptor Reflex"
+  ],
+  "Nephrotic Syndrome": [
+    "Glomerular Filtration Barrier",
+    "Podocytes",
+    "Oncotic Pressure",
+    "Starling Forces"
+  ],
+  "Nephritic Syndrome": [
+    "Glomerular Filtration Barrier",
+    "Type III Hypersensitivity",
+    "Complement System"
+  ],
+  "Post-Streptococcal GN": [
+    "Streptococcus pyogenes (Group A)",
+    "Type III Hypersensitivity",
+    "Nephritic Syndrome"
+  ],
+  "IgA Nephropathy": [
+    "IgA",
+    "Nephritic Syndrome",
+    "Complement System"
+  ],
+  "Goodpasture Syndrome": [
+    "Anti-GBM Disease",
+    "Type II Hypersensitivity",
+    "Basement Membrane"
+  ],
+  "Minimal Change Disease": [
+    "Nephrotic Syndrome",
+    "Podocytes",
+    "T Regulatory Cells"
+  ],
+  "Acute Tubular Necrosis": [
+    "Proximal Convoluted Tubule",
+    "Loop of Henle",
+    "Intrinsic AKI",
+    "Hypovolemic Shock"
+  ],
+  "Chronic Kidney Disease": [
+    "GFR",
+    "Renal Clearance",
+    "Secondary Hyperparathyroidism",
+    "Erythropoietin"
+  ],
+  "Renal Tubular Acidosis Type I": [
+    "Collecting Duct",
+    "Metabolic Acidosis",
+    "Anion Gap"
+  ],
+  "Renal Tubular Acidosis Type II": [
+    "Proximal Convoluted Tubule",
+    "Metabolic Acidosis",
+    "Fanconi Syndrome"
+  ],
+  "Fanconi Syndrome": [
+    "Proximal Convoluted Tubule",
+    "Glucose Reabsorption",
+    "Amino Acid Reabsorption"
+  ],
+  "Renal Osteodystrophy": [
+    "Chronic Kidney Disease",
+    "Secondary Hyperparathyroidism",
+    "Vitamin D Metabolism"
+  ],
+  "ADPKD": [
+    "Kidney Gross Structure",
+    "Renal Cortex",
+    "Autosomal Dominant Inheritance"
+  ],
+  "Hepatorenal Syndrome": [
+    "Portal Hypertension",
+    "Prerenal AKI",
+    "RAAS",
+    "Aldosterone"
+  ],
+  "Diabetic Ketoacidosis": [
+    "Type 1 Diabetes Mellitus",
+    "Metabolic Acidosis",
+    "Anion Gap",
+    "Glucagon",
+    "Insulin"
+  ],
+  "Hyperosmolar Hyperglycemic State": [
+    "Type 2 Diabetes Mellitus",
+    "ADH (Vasopressin)",
+    "Sodium Regulation"
+  ],
+  "Diabetic Nephropathy": [
+    "Type 1 Diabetes Mellitus",
+    "Type 2 Diabetes Mellitus",
+    "Glomerular Filtration Barrier",
+    "Nephrotic Syndrome"
+  ],
+  "Diabetic Retinopathy": [
+    "Type 1 Diabetes Mellitus",
+    "Type 2 Diabetes Mellitus",
+    "Retinal Detachment"
+  ],
+  "Cushing Syndrome": [
+    "Cortisol Synthesis",
+    "ACTH",
+    "CRH",
+    "HPA Axis in Depression"
+  ],
+  "Addison Disease": [
+    "Cortisol Synthesis",
+    "Aldosterone Synthesis",
+    "ACTH",
+    "Primary Hypertension"
+  ],
+  "Conn Syndrome": [
+    "Aldosterone Synthesis",
+    "RAAS",
+    "Primary Hypertension",
+    "Potassium Regulation"
+  ],
+  "Congenital Adrenal Hyperplasia": [
+    "Cortisol Synthesis",
+    "Aldosterone Synthesis",
+    "ACTH",
+    "21-Hydroxylase Deficiency"
+  ],
+  "Pheochromocytoma": [
+    "Catecholamines",
+    "Epinephrine",
+    "Norepinephrine",
+    "Secondary Hypertension"
+  ],
+  "Graves Disease": [
+    "TSH",
+    "T3",
+    "T4",
+    "Type II Hypersensitivity",
+    "Autoimmunity Mechanisms"
+  ],
+  "Hashimoto Thyroiditis": [
+    "TSH",
+    "T3",
+    "T4",
+    "Type IV Hypersensitivity",
+    "Autoimmunity Mechanisms"
+  ],
+  "Thyroid Storm": [
+    "Graves Disease",
+    "T3",
+    "T4",
+    "Catecholamines"
+  ],
+  "Primary Hyperparathyroidism": [
+    "Parathyroid Hormone",
+    "Calcium Regulation",
+    "Vitamin D Metabolism",
+    "Calcium Oxalate Stones"
+  ],
+  "Secondary Hyperparathyroidism": [
+    "Chronic Kidney Disease",
+    "Parathyroid Hormone",
+    "Vitamin D Metabolism",
+    "Calcium Regulation"
+  ],
+  "Zollinger-Ellison Syndrome": [
+    "Gastrin",
+    "Gastric Acid Secretion",
+    "Peptic Ulcer Disease",
+    "MEN1"
+  ],
+  "MEN1": [
+    "Prolactinoma",
+    "Primary Hyperparathyroidism",
+    "Zollinger-Ellison Syndrome"
+  ],
+  "MEN2A": [
+    "Medullary Thyroid Cancer",
+    "Pheochromocytoma",
+    "Primary Hyperparathyroidism"
+  ],
+  "Carcinoid Syndrome": [
+    "Carcinoid Tumor",
+    "Serotonin",
+    "Tricuspid Regurgitation"
+  ],
+  "COPD": [
+    "Obstructive Pattern",
+    "FEV1/FVC Ratio",
+    "Emphysema",
+    "Chronic Bronchitis"
+  ],
+  "Emphysema": [
+    "Alveoli",
+    "Type II Pneumocytes",
+    "Lung Compliance",
+    "Alpha-1 Antitrypsin Deficiency"
+  ],
+  "Asthma": [
+    "Airway Resistance",
+    "Type I Hypersensitivity",
+    "IgE",
+    "Leukotrienes",
+    "IL-4",
+    "IL-5"
+  ],
+  "Pulmonary Embolism": [
+    "Virchow Triad",
+    "Deep Vein Thrombosis",
+    "Factor V Leiden",
+    "V/Q Mismatch"
+  ],
+  "ARDS": [
+    "Type I Respiratory Failure",
+    "V/Q Mismatch",
+    "DAD",
+    "Surfactant"
+  ],
+  "IPF": [
+    "Restrictive Pattern",
+    "TGF-beta in Fibrosis",
+    "Fibrosis",
+    "Type II Pneumocytes"
+  ],
+  "Sarcoidosis": [
+    "Granulomatous Inflammation",
+    "Type IV Hypersensitivity",
+    "Restrictive Pattern",
+    "Epithelioid Cells"
+  ],
+  "Hypersensitivity Pneumonitis": [
+    "Type III Hypersensitivity",
+    "Type IV Hypersensitivity",
+    "Restrictive Pattern"
+  ],
+  "Pulmonary Hypertension (Primary)": [
+    "Pulmonary Vascular Resistance",
+    "Hypoxic Pulmonary Vasoconstriction",
+    "Right Heart Failure"
+  ],
+  "Small Cell Lung Cancer": [
+    "Paraneoplastic Syndromes",
+    "SIADH",
+    "Cushing Syndrome",
+    "Lambert-Eaton Syndrome"
+  ],
+  "Pancoast Tumor": [
+    "Horner Syndrome",
+    "Brachial Plexus",
+    "Squamous Cell Lung Cancer"
+  ],
+  "Cirrhosis": [
+    "Hepatic Lobule",
+    "Portal Circulation",
+    "Fibrosis",
+    "TGF-beta in Fibrosis",
+    "Alcoholic Hepatitis"
+  ],
+  "Portal Hypertension": [
+    "Cirrhosis",
+    "Portal Circulation",
+    "Esophageal Varices",
+    "Ascites"
+  ],
+  "Hepatic Encephalopathy": [
+    "Cirrhosis",
+    "Portal Hypertension",
+    "Urea Cycle"
+  ],
+  "Spontaneous Bacterial Peritonitis": [
+    "Ascites",
+    "Cirrhosis",
+    "Escherichia coli",
+    "Klebsiella pneumoniae"
+  ],
+  "Hepatocellular Carcinoma": [
+    "Cirrhosis",
+    "Hepatitis B",
+    "Hepatitis C",
+    "Hemochromatosis"
+  ],
+  "Acute Pancreatitis": [
+    "Pancreatic Enzymes",
+    "Lipase",
+    "Amylase",
+    "Trypsinogen",
+    "Cholelithiasis"
+  ],
+  "Chronic Pancreatitis": [
+    "Acute Pancreatitis",
+    "Pancreatic Enzymes",
+    "Fat Absorption"
+  ],
+  "Peptic Ulcer Disease": [
+    "Gastric Acid Secretion",
+    "Helicobacter pylori",
+    "Prostaglandins",
+    "NSAID-Induced Ulcer"
+  ],
+  "Barrett Esophagus": [
+    "GERD",
+    "Metaplasia",
+    "Esophageal Adenocarcinoma"
+  ],
+  "Crohn Disease": [
+    "Transmural Inflammation",
+    "Granulomatous Inflammation",
+    "Type IV Hypersensitivity",
+    "Skip Lesions (Crohn)"
+  ],
+  "Ulcerative Colitis": [
+    "Chronic Inflammation",
+    "Pseudopolyps",
+    "Toxic Megacolon",
+    "Colorectal Cancer"
+  ],
+  "Primary Biliary Cholangitis": [
+    "Bile Salts",
+    "Bile Acid Enterohepatic Circulation",
+    "Type IV Hypersensitivity",
+    "Autoimmunity Mechanisms"
+  ],
+  "Cholangitis": [
+    "Choledocholithiasis",
+    "Biliary System",
+    "Common Bile Duct",
+    "Reynolds Pentad"
+  ],
+  "DIC": [
+    "Extrinsic Coagulation Pathway",
+    "Intrinsic Coagulation Pathway",
+    "Fibrinolysis",
+    "Septic Shock"
+  ],
+  "TTP": [
+    "Platelet Activation",
+    "vWF",
+    "Microangiopathic Hemolytic Anemia"
+  ],
+  "HUS": [
+    "EHEC (O157:H7)",
+    "Microangiopathic Hemolytic Anemia",
+    "Intrinsic AKI"
+  ],
+  "Antiphospholipid Syndrome": [
+    "Type III Hypersensitivity",
+    "Autoimmunity Mechanisms",
+    "Virchow Triad",
+    "SLE"
+  ],
+  "Sickle Cell Disease": [
+    "Hemoglobin S",
+    "Hemoglobin Structure",
+    "Autosomal Recessive Inheritance",
+    "Coagulative Necrosis"
+  ],
+  "G6PD Deficiency": [
+    "HMP Shunt",
+    "G6PD",
+    "X-Linked Recessive",
+    "AIHA"
+  ],
+  "Hereditary Spherocytosis": [
+    "RBC Metabolism",
+    "Autosomal Dominant Inheritance",
+    "AIHA"
+  ],
+  "Pernicious Anemia": [
+    "Intrinsic Factor",
+    "Vitamin B12 (Cobalamin)",
+    "Parietal Cells",
+    "Type II Hypersensitivity"
+  ],
+  "Hemophilia A": [
+    "Factor VIII",
+    "Intrinsic Coagulation Pathway",
+    "X-Linked Recessive"
+  ],
+  "Hemophilia B": [
+    "Factor IX",
+    "Intrinsic Coagulation Pathway",
+    "X-Linked Recessive"
+  ],
+  "CML": [
+    "t(9;22) BCR-ABL",
+    "Ras Oncogene",
+    "Leukopoiesis"
+  ],
+  "AML": [
+    "t(15;17) PML-RARA",
+    "Oncogenes",
+    "Leukopoiesis"
+  ],
+  "Multiple Myeloma": [
+    "IL-6",
+    "Amyloidosis",
+    "Calcium Regulation",
+    "B Cell Activation"
+  ],
+  "Hodgkin Lymphoma": [
+    "Reed-Sternberg Cells",
+    "EBV (HHV-4)",
+    "B Cell Development",
+    "IL-5"
+  ],
+  "Burkitt Lymphoma": [
+    "t(8;14) Burkitt",
+    "EBV (HHV-4)",
+    "Myc Oncogene",
+    "B Cell Development"
+  ],
+  "ITP": [
+    "Platelet Activation",
+    "Type II Hypersensitivity",
+    "Autoimmunity Mechanisms"
+  ],
+  "SLE": [
+    "Autoimmunity Mechanisms",
+    "Type III Hypersensitivity",
+    "Anti-dsDNA",
+    "Anti-Smith",
+    "Complement System"
+  ],
+  "Rheumatoid Arthritis": [
+    "Type IV Hypersensitivity",
+    "Autoimmunity Mechanisms",
+    "IL-1",
+    "IL-6",
+    "TNF-alpha"
+  ],
+  "Ankylosing Spondylitis": [
+    "HLA-B27",
+    "Type IV Hypersensitivity",
+    "TNF-alpha"
+  ],
+  "Gout": [
+    "Uric Acid Crystals",
+    "Purine Synthesis",
+    "HGPRT Deficiency",
+    "Lesch-Nyhan Syndrome"
+  ],
+  "Systemic Sclerosis": [
+    "Autoimmunity Mechanisms",
+    "TGF-beta in Fibrosis",
+    "Fibrosis",
+    "Anti-Scl-70"
+  ],
+  "Dermatomyositis": [
+    "Type IV Hypersensitivity",
+    "Autoimmunity Mechanisms",
+    "Anti-Jo-1",
+    "Paraneoplastic Syndromes"
+  ],
+  "Polymyositis": [
+    "Type IV Hypersensitivity",
+    "Autoimmunity Mechanisms",
+    "Anti-Jo-1"
+  ],
+  "Osteoporosis": [
+    "Bone Remodeling",
+    "RANK/RANKL/OPG Pathway",
+    "Calcium Regulation",
+    "PTH Actions",
+    "Estrogen"
+  ],
+  "Paget Disease of Bone": [
+    "Bone Remodeling",
+    "Osteoclasts",
+    "Osteoblasts",
+    "Alkaline Phosphatase (Paget)"
+  ],
+  "Osteosarcoma": [
+    "Bone Remodeling",
+    "Rb Protein",
+    "p53",
+    "Tumor Suppressors"
+  ],
+  "Ischemic Stroke": [
+    "Circle of Willis",
+    "Virchow Triad",
+    "Atrial Fibrillation",
+    "Dorsal Column",
+    "Spinothalamic Tract"
+  ],
+  "Subarachnoid Hemorrhage": [
+    "Berry Aneurysm",
+    "Circle of Willis",
+    "Primary Hypertension"
+  ],
+  "Subdural Hematoma": [
+    "Meninges",
+    "Virchow Triad",
+    "Alcohol Use Disorder"
+  ],
+  "Epidural Hematoma": [
+    "Meninges",
+    "Herniation Syndromes"
+  ],
+  "Multiple Sclerosis": [
+    "Blood-Brain Barrier",
+    "Oligodendroglioma",
+    "Type IV Hypersensitivity",
+    "Autoimmunity Mechanisms"
+  ],
+  "Alzheimer Disease": [
+    "Hippocampus",
+    "Acetylcholine (CNS)",
+    "Amyloid"
+  ],
+  "Parkinson Disease": [
+    "Basal Ganglia",
+    "Dopamine",
+    "Nigrostriatal Pathway"
+  ],
+  "Huntington Disease": [
+    "Basal Ganglia",
+    "Glutamate",
+    "Autosomal Dominant Inheritance",
+    "Anticipation"
+  ],
+  "Myasthenia Gravis": [
+    "Neuromuscular Junction",
+    "Nicotinic Receptors",
+    "Type II Hypersensitivity",
+    "Acetylcholine (CNS)"
+  ],
+  "Guillain-Barre Syndrome": [
+    "Type IV Hypersensitivity",
+    "Molecular Mimicry",
+    "Molecular Mimicry"
+  ],
+  "Bacterial Meningitis": [
+    "Meninges",
+    "Blood-Brain Barrier",
+    "Streptococcus pneumoniae",
+    "Neisseria meningitidis"
+  ],
+  "Increased ICP": [
+    "CSF Circulation",
+    "Hydrocephalus",
+    "Herniation Syndromes",
+    "Papilledema"
+  ],
+  "Wernicke Encephalopathy": [
+    "Vitamin B1 (Thiamine)",
+    "Alcohol Use Disorder",
+    "TCA Cycle"
+  ],
+  "Tabes Dorsalis": [
+    "Treponema pallidum",
+    "Dorsal Column",
+    "Spinothalamic Tract"
+  ],
+  "Brown-Sequard Syndrome": [
+    "Dorsal Column",
+    "Spinothalamic Tract",
+    "Corticospinal Tract"
+  ]
+}

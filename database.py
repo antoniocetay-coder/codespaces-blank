@@ -69,11 +69,18 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_obj ON item_tags(object_id, object_type)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_confusion_pairs ON confusion_pairs(tag_correct)")
 
+    # Atualização dinâmica do esquema (Metacognição, Tempo e BKT)
     try:
         conn.execute("ALTER TABLE questions ADD COLUMN time_taken_seconds INTEGER")
         conn.execute("ALTER TABLE questions ADD COLUMN confidence_level TEXT")
     except sqlite3.OperationalError:
-        pass
+        pass # As colunas já existem
+
+    try:
+        # Coluna nova para armazenar o Teorema de Bayes
+        conn.execute("ALTER TABLE tag_stats ADD COLUMN mastery_prob REAL DEFAULT 0.15")
+    except sqlite3.OperationalError:
+        pass # A coluna já existe
 
     for s in SISTEMAS_DISPONIVEIS:
         conn.execute("INSERT OR IGNORE INTO erros_por_sistema (sistema, total) VALUES (?, 0)", (s,))

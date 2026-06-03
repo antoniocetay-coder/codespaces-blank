@@ -1,5 +1,7 @@
+import os
 import random
 import json
+import sqlite3
 from datetime import datetime, timezone
 
 from config import SISTEMAS_DISPONIVEIS
@@ -13,9 +15,53 @@ from mastery import classify_tag
 from ai_engine import TAXONOMIA_COMPLETA
 
 # ==============================================================================
-# 1. SELEÇÃO ESTRATÉGICA DE TAGS (50-30-20)
+# 0. INTERCEPTADOR DE PRÉ-REQUISITOS (Knowledge Graph)
+# ==============================================================================
+def _carregar_prerequisites():
+    path = os.path.join(os.path.dirname(__file__), "prerequisites.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+PREREQUISITES = _carregar_prerequisites()
+
+def interceptar_com_prerequisitos(tags_alvo, stats):
+    """
+    Se o aluno não domina a base (BKT < 65%), o interceptador 
+    CORTA a tag avançada e a SUBSTITUI pelo pré-requisito!
+    """
+    tags_finais = []
+    for tag in tags_alvo:
+        prereqs = PREREQUISITES.get(tag, [])
+        foi_substituida = False
+        
+        for prereq in prereqs:
+            s = stats.get(prereq, {"correct": 0, "total": 0, "mastery_prob": 0.15})
+            prob = s.get("mastery_prob")
+            if prob is None: prob = 0.15
+            
+            # Se o BKT do pré-requisito for menor que 65% (Não está Consolidado/Mastered)
+            if prob < 0.65:
+                if prereq not in tags_finais:
+                    tags_finais.append(prereq)
+                foi_substituida = True
+                break # Substitui apenas pelo primeiro pré-requisito fraco que achar
+                
+        # Se ele domina todos os pré-requisitos, mantém a tag avançada original
+        if not foi_substituida and tag not in tags_finais:
+            tags_finais.append(tag)
+            
+    return tags_finais
+
+# ==============================================================================
+# 1. SELEÇÃO ESTRATÉGICA DE TAGS (Com BKT e Grafo)
 # ==============================================================================
 def selecionar_tags_estrategicas(sistemas_semana, qtd_tags=6):
+    conn = get_conn()
+    
+    # 1. Pega as tags como já fazia antes
     if not sistemas_semana:
         sistemas_semana = SISTEMAS_DISPONIVEIS
 
@@ -52,18 +98,45 @@ def selecionar_tags_estrategicas(sistemas_semana, qtd_tags=6):
             lista.remove(item)
         return sorteio
 
-    escolhidas = []
-    escolhidas.extend(sortear_e_remover(categorias["LEARNING"], 3))
-    escolhidas.extend(sortear_e_remover(categorias["NEW"], 2))
-    escolhidas.extend(sortear_e_remover(categorias["CONSOLIDATED"], 1))
+    # 2. Sorteia as tags raízes (Onde o aluno é fraco)
+    escolhidas_raiz = []
+    escolhidas_raiz.extend(sortear_e_remover(categorias["LEARNING"], 3))
+    
+    # =====================================================================
+    # 🌟 A MÁGICA DA ONTOLOGIA ACONTECE AQUI 🌟
+    # Para cada tag que o aluno é fraco, buscamos no Grafo o que CAUSA ela
+    # ou os SINTOMAS (MANIFESTS_AS) para forçar raciocínio de 2ª ordem.
+    # =====================================================================
+    tags_segunda_ordem = set()
+    for tag_fraca in escolhidas_raiz:
+        try:
+            rows = conn.execute("""
+                SELECT source, target, relation FROM ontology_edges 
+                WHERE source = ? OR target = ?
+                ORDER BY RANDOM() LIMIT 2
+            """, (tag_fraca, tag_fraca)).fetchall()
+            
+            for r in rows:
+                if r['source'] != tag_fraca and r['source'] not in tags_bloqueadas:
+                    tags_segunda_ordem.add(r['source'])
+                if r['target'] != tag_fraca and r['target'] not in tags_bloqueadas:
+                    tags_segunda_ordem.add(r['target'])
+        except sqlite3.OperationalError:
+            pass # Caso a tabela ontology_edges ainda não exista
 
+    escolhidas = escolhidas_raiz + list(tags_segunda_ordem)
+
+    # Completa o resto do lote com NEW e CONSOLIDATED
+    faltam = qtd_tags - len(escolhidas)
+    if faltam > 0:
+        escolhidas.extend(sortear_e_remover(categorias["NEW"], min(2, faltam)))
+        
     faltam = qtd_tags - len(escolhidas)
     if faltam > 0:
         pool_reserva = categorias["LEARNING"] + categorias["NEW"] + categorias["CONSOLIDATED"]
         escolhidas.extend(sortear_e_remover(pool_reserva, faltam))
 
-    return escolhidas
-
+    return escolhidas[:qtd_tags]
 # ==============================================================================
 # 2. ORQUESTRAÇÃO DE FILA
 # ==============================================================================
@@ -100,7 +173,6 @@ def montar_fila_estudo(modo_escolhido):
 # 3. GERAÇÃO EM BATCH (OTIMIZADO)
 # ==============================================================================
 def gerar_lote_background(sistemas_semana, dificuldade, api_key, qtd_questoes=3):
-    """Gera questões agrupadas em chamadas únicas na API (Max 5 por vez)."""
     sucessos = 0
     if not sistemas_semana:
         sistemas_semana = SISTEMAS_DISPONIVEIS
@@ -123,7 +195,6 @@ def gerar_lote_background(sistemas_semana, dificuldade, api_key, qtd_questoes=3)
         sistema = random.choice(sistemas_semana)
         tags_alvo = selecionar_tags_estrategicas([sistema], qtd_tags=chunk_size)
         
-        # Faz UMA chamada pedindo N questões
         questoes_geradas = gerar_lote_questoes(sistema, dificuldade, api_key, tags_alvo, chunk_size)
         
         for q in questoes_geradas:

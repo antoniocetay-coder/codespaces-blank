@@ -1,7 +1,7 @@
 from config import *
 from fsrs import *
 from sd import process_sd
-from mastery import classify_tag
+from mastery import classify_tag_bkt, update_bkt
 from analytics import *
 from database import *
 from ai_engine import *
@@ -9,7 +9,7 @@ from scheduler import *
 from backup import *
 from flashcard_engine import orquestrar_flashcards, gerar_flashcard_sob_demanda, gerar_mais_flashcards, gerar_flashcards_do_tutor
 from ai_engine import explicar_duvida_tutor
-
+from mastery import classify_tag_bkt, update_bkt
 import streamlit as st
 import json
 import uuid
@@ -89,10 +89,29 @@ def salvar_resultado_pendente(q_id, sistema, is_correct, tags, time_taken, confi
     conn = get_conn()
 
     for tag in tags:
+        # Puxa a probabilidade atual do banco
+        row = conn.execute("SELECT correct, total, mastery_prob FROM tag_stats WHERE tag = ?", (tag,)).fetchone()
+        
+        if row:
+            curr_prob = row["mastery_prob"] if row["mastery_prob"] is not None else 0.15
+            corrects = row["correct"] + int(is_correct)
+            totals = row["total"] + 1
+        else:
+            curr_prob = 0.15
+            corrects = int(is_correct)
+            totals = 1
+
+        # Roda o motor Bayesiano
+        new_prob = update_bkt(curr_prob, is_correct, confidence)
+
+        # Salva o novo valor no banco
         conn.execute("""
-            INSERT INTO tag_stats (tag, correct, total) VALUES (?, ?, 1)
-            ON CONFLICT(tag) DO UPDATE SET correct = correct + excluded.correct, total = total + 1
-        """, (tag, int(is_correct)))
+            INSERT INTO tag_stats (tag, correct, total, mastery_prob) VALUES (?, ?, 1, ?)
+            ON CONFLICT(tag) DO UPDATE SET 
+                correct = ?, 
+                total = ?, 
+                mastery_prob = ?
+        """, (tag, corrects, new_prob, corrects, totals, new_prob))
 
     if not is_correct:
         conn.execute("UPDATE erros_por_sistema SET total = total + 1 WHERE sistema = ?", (sistema,))
@@ -709,18 +728,30 @@ with tab3:
             else:
                 st.success("Você ainda não caiu em nenhum distrator de forma repetida!")
                 
+        # ==========================================
+        # MICRO-TAGS (Com Teorema de Bayes - BKT)
+        # ==========================================
         st.markdown("---")
-        with st.expander("Ver Domínio Completo por Micro-Tags"):
-            stats = get_tag_stats()
+        with st.expander("Ver Domínio BKT Completo por Micro-Tags"):
+            conn = get_conn()
+            rows_db = conn.execute("SELECT tag, correct, total, mastery_prob FROM tag_stats").fetchall()
+            
             rows = []
-            for tag, s in stats.items():
-                if s["total"] > 0:
-                    pct = (s["correct"] / s["total"]) * 100
-                    nivel_dominio = classify_tag(s["correct"], s["total"]).value
-                    rows.append({"Tag": tag, "Accuracy (%)": round(pct, 1), "Attempts": s["total"], "Mastery": nivel_dominio.upper()})
+            for r in rows_db:
+                if r["total"] > 0:
+                    prob = r["mastery_prob"] if r["mastery_prob"] is not None else (r["correct"]/r["total"])
+                    pct_bkt = prob * 100
+                    nivel_dominio = classify_tag_bkt(prob).value
+                    
+                    rows.append({
+                        "Tag": r["tag"], 
+                        "BKT Mastery (%)": round(pct_bkt, 1), 
+                        "Attempts": r["total"], 
+                        "Status": nivel_dominio.upper()
+                    })
 
             if rows:
-                df_tags = pd.DataFrame(rows).sort_values("Accuracy (%)")
+                df_tags = pd.DataFrame(rows).sort_values("BKT Mastery (%)")
                 st.dataframe(df_tags, use_container_width=True, hide_index=True)
 
 # ==============================================================================
