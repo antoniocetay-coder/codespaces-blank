@@ -15,21 +15,20 @@ CORRECT ANSWER ({correct_opt}): {correct_exp}
 {block_redundancia}
 
 TASK:
-Ignore any distractors. The student lacks the basic foundation. 
 Generate 2 ATOMIC Q&A flashcards to build their base from scratch.
-- Card 1: Ask for the basic definition, classic presentation, or gold-standard diagnosis.
+- Card 1: Ask for the classic clinical presentation, gold-standard diagnosis, or hallmark finding of the disease/concept.
 - Card 2: Ask for the core pathophysiology or mechanism of action.
 
 STRICT RULES:
 1. NO CLOZE DELETIONS. Use direct questions.
 2. SHORT ANSWERS: 1 to 5 words maximum.
-3. NO LISTS. 
+3. DO NOT mention the distractors. Focus purely on the correct concept.
 """
 
 def construir_prompt_duvida(edu_obj, correct_opt, correct_exp, wrong_opt, wrong_exp, block_redundancia):
     return f"""
 You are an elite USMLE diagnostician. 
-The student was torn between two similar concepts and guessed incorrectly.
+The student was torn between two concepts and guessed incorrectly.
 
 EDUCATIONAL OBJECTIVE: {edu_obj}
 CORRECT ANSWER ({correct_opt}): {correct_exp}
@@ -38,21 +37,20 @@ STUDENT'S CONFUSED ANSWER ({wrong_opt}): {wrong_exp}
 {block_redundancia}
 
 TASK:
-The student understands the basics but lacks the ability to differentiate these two concepts.
-Generate 2 ATOMIC Q&A flashcards focusing strictly on CONTRAST and DIFFERENTIAL DIAGNOSIS.
-- Card 1: Ask for the specific clinical or lab feature EXCLUSIVE to the Correct Answer.
-- Card 2: Ask for the specific clinical or lab feature EXCLUSIVE to the Wrong Answer.
+Generate 2 ATOMIC Q&A flashcards focusing on HIGH-YIELD clinical facts.
+- Card 1: Ask for the pathognomonic finding, mechanism, or gold-standard treatment of the CORRECT answer.
+- Card 2: Ask for the pathognomonic finding, mechanism, or gold-standard treatment of the WRONG answer.
 
 STRICT RULES:
 1. NO CLOZE DELETIONS. Use direct questions.
 2. SHORT ANSWERS: 1 to 5 words maximum.
-3. NO LISTS. Focus on distinguishing features.
+3. DO NOT ask "What is the difference between X and Y?". Ask independent, standalone questions about each disease.
 """
 
 def construir_prompt_vies(edu_obj, correct_opt, correct_exp, wrong_opt, wrong_exp, block_redundancia):
     return f"""
 You are an elite USMLE cognitive behavioral tutor. 
-The student was ABSOLUTELY CERTAIN about an answer, but they were DEAD WRONG. They fell for a classic trap.
+The student was ABSOLUTELY CERTAIN about an answer, but they were DEAD WRONG.
 
 EDUCATIONAL OBJECTIVE: {edu_obj}
 CORRECT ANSWER ({correct_opt}): {correct_exp}
@@ -61,13 +59,13 @@ STUDENT'S TRAP ANSWER ({wrong_opt}): {wrong_exp}
 {block_redundancia}
 
 TASK:
-Shatter the student's cognitive bias. They fell for a "Red Herring" or an exception to the rule.
-Generate 1 or 2 ATOMIC Q&A flashcards highlighting the TRAP.
-- Focus the question on the specific "exception", "caveat", or "trick" that makes their assumed answer wrong in this specific context.
+Generate 1 or 2 ATOMIC Q&A flashcards highlighting the TRAP or the HIGH-YIELD fact they missed.
+- Focus the question on the specific "exception", "caveat", or "hallmark feature" that makes the correct answer correct.
 
 STRICT RULES:
 1. NO CLOZE DELETIONS. Use direct questions.
 2. SHORT ANSWERS: 1 to 5 words maximum.
+3. DO NOT ask "Why is X not Y?". Ask a standalone question about the core concept.
 """
 
 def formatar_contexto_redundancia(cards_banco, cards_rascunho):
@@ -230,10 +228,7 @@ Return ONLY valid JSON in this exact format:
         return []
     
 def gerar_flashcards_do_tutor(explicacao, cards_banco, cards_rascunho, api_key):
-    """Transforma a explicação livre do Tutor AI em Flashcards atômicos, evitando redundância."""
     client = genai.Client(api_key=api_key)
-    
-    # Injeta a regra de redundância
     block_redundancia = formatar_contexto_redundancia(cards_banco, cards_rascunho)
     
     prompt = f"""
@@ -276,4 +271,3 @@ Return ONLY valid JSON in this exact format:
     except Exception as e:
         st.error(f"⚠️ Erro ao gerar card do tutor: {str(e)}")
         return []
-    
