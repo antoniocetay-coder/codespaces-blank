@@ -1,77 +1,10 @@
 import json
+import requests
 import streamlit as st
-from google import genai
-from config import *
-
-# ==============================================================================
-# CARREGAMENTO DA TAXONOMIA
-# ==============================================================================
-def carregar_taxonomia():
-    try:
-        with open("taxonomy.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-TAXONOMIA_COMPLETA = carregar_taxonomia()
-
-# Lista global plana de tags para validação rápida (O Python aguenta isso, a IA não)
-TAGS_GLOBAIS_PERMITIDAS = set()
-for sis, disciplinas in TAXONOMIA_COMPLETA.items():
-    for disc, tags in disciplinas.items():
-        if isinstance(tags, list):
-            TAGS_GLOBAIS_PERMITIDAS.update(tags)
-
-def limpar_json(texto):
-    texto = texto.strip().lstrip("\ufeff")
-    if "```" in texto:
-        linhas = texto.splitlines()
-        linhas = [l for l in linhas if not l.strip().startswith("```")]
-        texto = "\n".join(linhas)
-
-    inicio = texto.find("{")
-    fim = texto.rfind("}")
-    if inicio != -1 and fim != -1:
-        texto = texto[inicio:fim+1]
-    return texto
-
-# ==============================================================================
-# VALIDAÇÃO
-# ==============================================================================
-SCHEMA_OBRIGATORIO = {
-    "vignette",
-    "options",
-    "correct",
-    "explanations",
-    "educational_objective",
-    "content_tags",
-    "distractor_tags"
-}
-
-def validar_questao(q, sistema):
-    if not isinstance(q, dict):
-        return False, "A IA não devolveu um formato de dicionário válido."
-
-    faltando = SCHEMA_OBRIGATORIO - q.keys()
-    if faltando:
-        return False, f"Faltam informações no JSON gerado: {faltando}"
-
-    tags_geradas = q.get("content_tags", [])
-    if not tags_geradas:
-        return False, "A IA não gerou nenhuma Tag para a questão."
-
-    # VALIDA CONTRA TODA A MEDICINA (Garante que a IA pode cruzar sistemas sem ser punida)
-    if TAGS_GLOBAIS_PERMITIDAS:
-        invalid_tags = [t for t in tags_geradas if t not in TAGS_GLOBAIS_PERMITIDAS]
-        if invalid_tags:
-            return False, f"Alucinação nas content_tags: {invalid_tags}"
-
-        dist_tags = q.get("distractor_tags", {})
-        for letra, tag in dist_tags.items():
-            if tag not in TAGS_GLOBAIS_PERMITIDAS:
-                return False, f"Alucinação no distrator {letra}: '{tag}'"
-
-    return True, "OK"
+from ai_client import chat_json, chat_text
+from config import MODEL_QBANK, MODEL_FLASHCARD
+from taxonomy import TAXONOMIA_COMPLETA
+from validation import limpar_json, validar_questao
 
 # ==============================================================================
 # AI ENGINE - BATCH GENERATOR (Otimizado)
@@ -90,7 +23,7 @@ def gerar_prompt_lote(sistema, difficulty, cognitive_order, tags_alvo, num_quest
 
     confounder_instruction = ""
     if tags_alvo:
-        from database import get_top_confounders
+        from db.confusions import get_top_confounders
         confounders = []
         for tag in tags_alvo:
             confounders.extend(get_top_confounders(tag))
@@ -159,29 +92,20 @@ You MUST return a valid JSON object containing an array called "questions". Do n
 """
 
 def gerar_lote_questoes(sistema, difficulty, cognitive_order, api_key, tags_alvo, num_questoes):
-    client = genai.Client(api_key=api_key)
     prompt = gerar_prompt_lote(sistema, difficulty, cognitive_order, tags_alvo, num_questoes)
 
     try:
-        response = client.models.generate_content(
-            model=MODEL_QBANK,
-            contents=prompt,
-            config={
-                "temperature": 0.4,
-                "response_mime_type": "application/json"
-            }
-        )
-        texto = limpar_json(response.text)
-        
-        # Teste de falha de conversão do JSON
+        texto_bruto = chat_json(prompt, MODEL_QBANK, api_key, temperature=0.4, reasoning=True)
+        texto = limpar_json(texto_bruto)
+
         if not texto:
             print("Erro: A IA devolveu um texto vazio.")
             return []
-            
+
         dados = json.loads(texto)
         questoes_geradas = dados.get("questions", [])
         questoes_validas = []
-        
+
         for q in questoes_geradas:
             is_valid, msg = validar_questao(q, sistema)
             if is_valid:
@@ -190,16 +114,20 @@ def gerar_lote_questoes(sistema, difficulty, cognitive_order, api_key, tags_alvo
             else:
                 st.toast(f"🗑️ Questão descartada: {msg}")
                 print(f"Descartada: {msg}")
-                
+
         return questoes_validas
-        
+
     except json.JSONDecodeError as e:
         print(f"Erro de Parse JSON: {str(e)}\nTexto retornado:\n{texto}")
         st.toast("⚠️ A IA se confundiu no formato JSON. Tentando novamente...")
         return []
+    except requests.HTTPError as e:
+        print(f"Erro HTTP OpenRouter: {e.response.status_code} {e.response.text}")
+        st.toast(f"⚠️ Erro OpenRouter ({e.response.status_code}).")
+        return []
     except Exception as e:
         print(f"Erro na API: {str(e)}")
-        st.toast(f"⚠️ Erro no servidor do Gemini: {str(e)}")
+        st.toast(f"⚠️ Erro no servidor: {str(e)}")
         return []
 
 def gerar_questao(sistema, difficulty, api_key, tags_alvo=None):
@@ -207,7 +135,6 @@ def gerar_questao(sistema, difficulty, api_key, tags_alvo=None):
     return res[0] if res else None
 
 def explicar_duvida_tutor(contexto_material, duvida_aluno, api_key):
-    client = genai.Client(api_key=api_key)
     prompt = f"""
 You are an elite, empathetic USMLE tutor (Step 1 and Step 2 CK).
 The student is currently studying the following material (Flashcard or Question):
@@ -226,11 +153,6 @@ Provide a highly accurate, concise, and easy-to-understand explanation.
 - Keep your answer between 1 and 3 short paragraphs. DO NOT write a giant essay.
 """
     try:
-        response = client.models.generate_content(
-            model=MODEL_FLASHCARD, 
-            contents=prompt,
-            config={"temperature": 0.4}
-        )
-        return response.text
+        return chat_text(prompt, MODEL_FLASHCARD, api_key, temperature=0.4, reasoning=False)
     except Exception as e:
         return f"⚠️ Erro ao contatar o Tutor: {str(e)}"

@@ -1,10 +1,12 @@
 DB_PATH = "usmle_data.db"
 
-# O modelo mais potente e criativo para gerar os Casos Clínicos (Vignettes)
-MODEL_QBANK = "gemini-3.5-flash"  
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-# O modelo mais rápido, barato e de alto volume para gerar os Flashcards
-MODEL_FLASHCARD = "gemini-2.5-flash" 
+# Questões clínicas NBME — raciocínio profundo
+MODEL_QBANK = "xiaomi/mimo-v2.5-pro"
+
+# Flashcards e explicações do tutor — alto volume, baixa latência
+MODEL_FLASHCARD = "xiaomi/mimo-v2.5"
 
 SISTEMAS_DISPONIVEIS = [
     "General_Principles",
