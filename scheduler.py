@@ -1,59 +1,16 @@
-import os
 import random
-import json
 import sqlite3
 from datetime import datetime, timezone
 
 from config import SISTEMAS_DISPONIVEIS
-from database import (
-    get_conn, get_tags_em_cooldown, get_pending_questions, 
-    get_cards_hoje, salvar_questao, registrar_cooldown_tags,
-    get_system_stats
-)
-from analytics import get_tag_stats
+from db.core import get_conn
+from db.questions import get_pending_questions, salvar_questao
+from db.flashcards import get_cards_hoje
+from db.confusions import get_tags_em_cooldown, registrar_cooldown_tags
+from analytics import get_tag_stats, get_system_stats
 from mastery import classify_tag
-from ai_engine import TAXONOMIA_COMPLETA
-
-# ==============================================================================
-# 0. INTERCEPTADOR DE PRÉ-REQUISITOS (Knowledge Graph)
-# ==============================================================================
-def _carregar_prerequisites():
-    path = os.path.join(os.path.dirname(__file__), "prerequisites.json")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-PREREQUISITES = _carregar_prerequisites()
-
-def interceptar_com_prerequisitos(tags_alvo, stats):
-    """
-    Se o aluno não domina a base (BKT < 65%), o interceptador 
-    CORTA a tag avançada e a SUBSTITUI pelo pré-requisito!
-    """
-    tags_finais = []
-    for tag in tags_alvo:
-        prereqs = PREREQUISITES.get(tag, [])
-        foi_substituida = False
-        
-        for prereq in prereqs:
-            s = stats.get(prereq, {"correct": 0, "total": 0, "mastery_prob": 0.15})
-            prob = s.get("mastery_prob")
-            if prob is None: prob = 0.15
-            
-            # Se o BKT do pré-requisito for menor que 65% (Não está Consolidado/Mastered)
-            if prob < 0.65:
-                if prereq not in tags_finais:
-                    tags_finais.append(prereq)
-                foi_substituida = True
-                break # Substitui apenas pelo primeiro pré-requisito fraco que achar
-                
-        # Se ele domina todos os pré-requisitos, mantém a tag avançada original
-        if not foi_substituida and tag not in tags_finais:
-            tags_finais.append(tag)
-            
-    return tags_finais
+from taxonomy import TAXONOMIA_COMPLETA
+from prerequisites import interceptar_com_prerequisitos
 
 # ==============================================================================
 # 1. SELEÇÃO ESTRATÉGICA DE TAGS (Com BKT e Grafo)
